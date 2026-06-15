@@ -49,6 +49,14 @@ html = """<!DOCTYPE html>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 <title>Sandy Cove</title>
+<link rel="manifest" href="manifest.webmanifest"/>
+<meta name="theme-color" content="#4f9a3c"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Sandy Cove"/>
+<link rel="apple-touch-icon" href="icon-180.png"/>
+<link rel="icon" type="image/png" href="icon-192.png"/>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #1b1d2a; overflow: hidden;
@@ -92,8 +100,14 @@ html = """<!DOCTYPE html>
   #goldBox span { font-size: 20px; color: #4a2c12; }
   #gold { font-size: 22px; }
 
-  /* ---- minimap (top-left) ---- */
-  #mapBox { position: absolute; top: 14px; left: 14px; padding: 6px; }
+  /* ---- top-left menu button ---- */
+  #pauseBtn { position: absolute; top: 14px; left: 14px; width: 42px; height: 42px; z-index: 15;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 20px;
+    color: #4a2c12; }
+  #pauseBtn:active { transform: scale(.94); }
+
+  /* ---- minimap (top-left, under the menu button) ---- */
+  #mapBox { position: absolute; top: 64px; left: 14px; padding: 6px; }
   #minimap { width: 176px; height: 136px; image-rendering: pixelated; display: block;
     border: 2px solid #6b3f1d; border-radius: 4px; }
   #mapBox .cap { font-size: 11px; color: #4a2c12; text-align: center; margin-top: 2px; }
@@ -116,7 +130,8 @@ html = """<!DOCTYPE html>
   #buildMenu button:active:not(:disabled) { transform: scale(.96); }
 
   /* ---- right-edge vertical energy/health bars ---- */
-  #bars { position: absolute; right: 16px; bottom: 96px; display: flex; gap: 8px; align-items: flex-end; }
+  #bars { position: absolute; right: 16px; bottom: 96px; display: flex; gap: 8px; align-items: flex-end;
+    pointer-events: none; }
   .vbar { width: 26px; height: 200px; padding: 4px; display: flex; align-items: flex-end; }
   .vbar > i { display: block; width: 100%; border-radius: 4px; transition: height .25s;
     box-shadow: inset 0 0 0 1px rgba(0,0,0,.25); }
@@ -143,9 +158,38 @@ html = """<!DOCTYPE html>
   #msg.wood { color: #4a2c12; text-shadow: 0 1px 0 #f3d8a8; }
   #msg:empty { display: none; }
 
-  #help { position: absolute; top: 196px; left: 14px; padding: 9px 13px; font-size: 12px;
+  #help { position: absolute; top: 246px; left: 14px; padding: 9px 13px; font-size: 12px;
     line-height: 1.5; max-width: 200px; color: #4a2c12; }
   #help b { color: #7a3f12; }
+
+  /* ---- pause / options menu ---- */
+  #pauseMenu { display: none; position: absolute; inset: 0; z-index: 30;
+    background: rgba(20,16,30,.55); align-items: center; justify-content: center; }
+  #pauseMenu .panel { width: min(320px, 86vw); padding: 18px; text-align: center; }
+  #pauseMenu h2 { margin: 0 0 12px; font-size: 24px; color: #4a2c12; text-shadow: 0 1px 0 #f3d8a8; }
+  #pauseMenu button { display: block; width: 100%; margin: 6px 0; font-family: inherit; font-weight: bold;
+    font-size: 15px; padding: 10px; border-radius: 8px; border: 2px solid #6b3f1d; color: #4a2c12;
+    background: linear-gradient(#f0d3a0, #d2a262); cursor: pointer; }
+  #pauseMenu button:active { transform: scale(.97); }
+  #pmOptions { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid #8a5a2b66; }
+
+  /* ---- intro loading screen ---- */
+  #loader { position: absolute; inset: 0; z-index: 40; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center; padding: 24px;
+    background: linear-gradient(#bfe6ff, #dff3ff 42%, #7cc35a); color: #3a2a16; }
+  #loader .logo { width: 120px; height: 120px; border-radius: 24px; margin-bottom: 14px;
+    image-rendering: auto; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+  #loader h1 { margin: 0; font-size: 40px; letter-spacing: 1px; text-shadow: 0 2px 0 rgba(255,255,255,.4); }
+  #loader .tag { margin: 8px 0 4px; max-width: 460px; font-size: 15px; line-height: 1.5; color: #43321c; }
+  #loader .hint { font-size: 12px; color: #5a4630; margin-bottom: 18px; max-width: 460px; }
+  #loadBarWrap { width: min(340px, 80vw); height: 18px; padding: 3px; }
+  #loadBar { height: 100%; width: 8%; border-radius: 6px; transition: width 1.6s ease;
+    background: linear-gradient(#caf06a, #5fae35); }
+  #loadTip { font-size: 12px; color: #5a4630; margin-top: 8px; height: 16px; }
+  #playBtn { display: none; margin-top: 14px; font-family: inherit; font-weight: bold; font-size: 18px;
+    padding: 10px 28px; border-radius: 10px; border: 2px solid #6b3f1d; color: #4a2c12; cursor: pointer;
+    background: linear-gradient(#f0d3a0, #d2a262); }
+  #playBtn:active { transform: scale(.97); }
 
   /* ---- on-screen touch buttons (hidden until a touch is detected) ---- */
   #touchUI { position: absolute; right: 18px; bottom: 96px; display: none;
@@ -170,13 +214,15 @@ html = """<!DOCTYPE html>
     #goldBox span { font-size: 15px; } #gold { font-size: 16px; }
     #goldBox .gem { width: 14px; height: 14px; } #goldBox .coin { width: 15px; height: 15px; }
 
-    /* minimap, smaller, top-left */
-    #mapBox { top: 8px; left: 8px; padding: 4px; }
+    /* menu button + minimap, smaller, top-left */
+    #pauseBtn { top: 8px; left: 8px; width: 38px; height: 38px; font-size: 18px; }
+    #mapBox { top: 52px; left: 8px; padding: 4px; }
     #minimap { width: 104px; height: 80px; }
     #mapBox .cap { font-size: 9px; }
+    #loader h1 { font-size: 30px; } #loader .tag { font-size: 13px; } #loader .logo { width: 96px; height: 96px; }
 
-    /* vertical bars */
-    #bars { right: 8px; bottom: 150px; gap: 6px; }
+    /* vertical bars move to the LEFT edge so they don't sit under the Use/Buy buttons */
+    #bars { left: 8px; right: auto; bottom: 150px; gap: 6px; }
     .vbar { height: 118px; width: 18px; padding: 3px; }
 
     /* hotbar fits 10 slots across a phone */
@@ -248,12 +294,47 @@ html = """<!DOCTYPE html>
 
   <div id="hotbar" class="wood"></div>
   <div id="msg" class="wood"></div>
+
+  <div id="pauseBtn" class="wood emboss" title="Menu (Esc)">&#9776;</div>
+
+  <div id="pauseMenu">
+    <div class="panel wood">
+      <h2>Paused</h2>
+      <button id="pmResume">Resume</button>
+      <button id="pmOptionsBtn">Options</button>
+      <button id="pmSave">Save Game</button>
+      <div id="pmOptions">
+        <button id="pmMinimap">Toggle Minimap</button>
+        <button id="pmFullscreen">Toggle Fullscreen</button>
+        <button id="pmReset">Start Over (erase save)</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loader">
+    <img class="logo" src="icon-192.png" alt="Sandy Cove"/>
+    <h1 class="emboss">Sandy Cove</h1>
+    <p class="tag">A cosy farming life-sim. Tend your homestead at <b>Harvest Hollow</b> — raise crops and animals, fish the rivers and ponds, upgrade your home from a humble shelter all the way to a Ranch &mdash; and uncover the way to the hidden <b>Sandy Cove</b>.</p>
+    <p class="hint">Move: WASD / Arrows or the on-screen stick &middot; Use tools: Space / tap &middot; Menu: Esc</p>
+    <div id="loadBarWrap" class="wood"><div id="loadBar"></div></div>
+    <div id="loadTip">Loading&hellip;</div>
+    <button id="playBtn">&#9654; Play</button>
+  </div>
 </div>
 <script>
 window.ASSET_DATA = __ASSET_DATA__;
 </script>
 <script>
 __ENGINE__
+</script>
+<script>
+  // register the service worker so the game installs as a PWA and works offline
+  // (only over http/https — service workers don't run from a file:// double-click)
+  if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+  }
 </script>
 </body>
 </html>
@@ -268,4 +349,55 @@ with open(out, 'w') as f:
 # GitHub Pages serves index.html at the site root — emit that too
 with open(os.path.join(ROOT, 'index.html'), 'w') as f:
     f.write(html)
-print('WROTE', out, 'and index.html', round(len(html) / 1024), 'KB,', len(asset_data), 'assets')
+
+# ---- PWA: web manifest + service worker (so the game is installable & offline) ----
+import time
+build_ver = time.strftime('%Y%m%d%H%M%S')
+
+manifest = {
+    "name": "Sandy Cove",
+    "short_name": "Sandy Cove",
+    "description": "A cosy farming life-sim. Tend Harvest Hollow and find your way to Sandy Cove.",
+    "start_url": "./",
+    "scope": "./",
+    "display": "standalone",
+    "orientation": "any",
+    "background_color": "#1b1d2a",
+    "theme_color": "#4f9a3c",
+    "icons": [
+        {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+        {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+    ],
+}
+with open(os.path.join(ROOT, 'manifest.webmanifest'), 'w') as f:
+    json.dump(manifest, f, indent=2)
+
+sw = """// Sandy Cove service worker — offline cache. Version bumps on every build.
+const CACHE = 'sandy-cove-%s';
+const CORE = ['./', './index.html', './manifest.webmanifest',
+              './icon-192.png', './icon-512.png', './icon-180.png'];
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));
+});
+self.addEventListener('activate', (e) => {
+  e.waitUntil(caches.keys().then((ks) =>
+    Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+  ).then(() => self.clients.claim()));
+});
+self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  e.respondWith(
+    caches.match(req).then((hit) => hit || fetch(req).then((res) => {
+      const copy = res.clone();
+      caches.open(CACHE).then((c) => c.put(req, copy));
+      return res;
+    }).catch(() => (req.mode === 'navigate' ? caches.match('./index.html') : undefined)))
+  );
+});
+""" % build_ver
+with open(os.path.join(ROOT, 'sw.js'), 'w') as f:
+    f.write(sw)
+
+print('WROTE', out, '+ index.html', round(len(html) / 1024), 'KB,', len(asset_data), 'assets')
+print('WROTE manifest.webmanifest, sw.js (cache sandy-cove-%s)' % build_ver)

@@ -165,6 +165,8 @@ const game = {
   message: '', messageTime: 0,
   paused: false,
   buildMenuOpen: false,
+  pauseMenuOpen: false,
+  started: false,              // becomes true once the player clicks Play
 };
 
 const keyName = (x, y) => x + ',' + y;
@@ -382,7 +384,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key.toLowerCase() === 'e') doAction();       // interact
   if (e.key.toLowerCase() === 'b') tryBuy();          // buy seeds near shop
   if (e.key.toLowerCase() === 'm') document.body.classList.toggle('hidemap'); // toggle minimap
-  if (e.key === 'Escape') game.paused = !game.paused;
+  if (e.key === 'Escape') togglePauseMenu();
   if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase()))
     e.preventDefault();
 });
@@ -1560,6 +1562,66 @@ function renderBuildMenu() {
   if (upBtn) { upBtn.style.display = ''; upBtn.disabled = !canAfford(next.cost); }
 }
 
+// ---- pause / options menu ----
+function togglePauseMenu() {
+  if (!game.started) return;                 // ignore before the game has started
+  if (game.buildMenuOpen) return;
+  game.pauseMenuOpen ? closePauseMenu() : openPauseMenu();
+}
+function openPauseMenu() {
+  const p = document.getElementById('pauseMenu'); if (!p) return;
+  game.pauseMenuOpen = true; game.paused = true;
+  const opt = document.getElementById('pmOptions'); if (opt) opt.style.display = 'none';
+  p.style.display = 'flex';
+}
+function closePauseMenu() {
+  const p = document.getElementById('pauseMenu'); if (!p) return;
+  game.pauseMenuOpen = false; game.paused = false; p.style.display = 'none';
+}
+function toggleFullscreen() {
+  try {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+  } catch (e) { /* not supported */ }
+}
+function resetSave() {
+  try { localStorage.removeItem('harvest_hollow_save'); } catch (e) {}
+  location.reload();
+}
+function bindPauseMenu() {
+  const on = (id, fn) => { const el = document.getElementById(id); if (el) { el.addEventListener('click', fn); } };
+  on('pauseBtn', togglePauseMenu);
+  on('pmResume', closePauseMenu);
+  on('pmOptionsBtn', () => { const o = document.getElementById('pmOptions'); if (o) o.style.display = (o.style.display === 'none' ? 'block' : 'none'); });
+  on('pmMinimap', () => document.body.classList.toggle('hidemap'));
+  on('pmFullscreen', toggleFullscreen);
+  on('pmSave', () => { saveGame(); toast('Game saved.'); closePauseMenu(); });
+  on('pmReset', () => { if (window.confirm('Start over? This erases your saved game.')) resetSave(); });
+}
+
+// ---- intro loading screen ----
+let loaderReady = null, gameRestored = false;
+function startLoaderAnim() {
+  const bar = document.getElementById('loadBar');
+  if (bar) { bar.style.width = '8%'; setTimeout(() => { bar.style.width = '88%'; }, 60); }
+}
+function finishLoader(restored) {
+  gameRestored = restored;
+  const bar = document.getElementById('loadBar'); if (bar) bar.style.width = '100%';
+  const play = document.getElementById('playBtn'); const tip = document.getElementById('loadTip');
+  if (tip) tip.textContent = 'Ready!';
+  if (play) { play.style.display = 'inline-block'; play.addEventListener('click', startGameLoop); }
+}
+function startGameLoop() {
+  if (game.started) return;
+  game.started = true;
+  const loader = document.getElementById('loader'); if (loader) loader.style.display = 'none';
+  if (!gameRestored) {
+    toast('Welcome to Harvest Hollow. You came chasing a rumor of Sandy Cove — a place that hides from those who simply look. Tend the land, explore, and the way will show itself...', 11);
+  }
+  requestAnimationFrame(loop);
+}
+
 // ----------------------------------------------------------------- BOOT
 function resize() {
   // fill the visible viewport (use the dynamic viewport so the mobile URL bar
@@ -1591,16 +1653,15 @@ function bindBuildMenu() {
 
 async function boot() {
   resize();
+  startLoaderAnim();
   await loadAssets();
   genWorld();
   const restored = loadGame();   // restore if a save exists
   buildHotbar();
   bindBuildMenu();
-  if (!restored) {
-    // first seed of the mystery: home is Harvest Hollow; the goal is Sandy Cove
-    toast('Welcome to Harvest Hollow. You came chasing a rumor of Sandy Cove — a place that hides from those who simply look. Tend the land, explore, and the way will show itself...', 11);
-  }
-  requestAnimationFrame(loop);
+  bindPauseMenu();
+  render();                      // draw one frame behind the loader so it's ready
+  finishLoader(restored);        // reveal the Play button; the loop starts on click
 }
 
 // expose a tiny API for headless logic testing (Node) without touching the DOM
