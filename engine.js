@@ -13,14 +13,15 @@
 
 // ----------------------------------------------------------------- CONSTANTS
 const TILE = 16;            // source pixel size of one tile
-const SCALE = 3;            // on-screen zoom
-const TS = TILE * SCALE;    // 48px on screen
+const SCALE = 4;            // on-screen zoom (higher = tighter FOV, less visible area)
+const TS = TILE * SCALE;    // 64px on screen
 const MAP_W = 44, MAP_H = 34;
 
 // Player sprite sheet: 32x32 frames, 6 cols. Walk rows: down=0, up=2, side=4.
 const PF = 32;              // player frame size (source)
 const PDRAW = PF * SCALE;   // 96 on screen
-const WALK = { down: 0, up: 2, side: 4 };
+const WALK = { down: 3, up: 5, side: 4 };   // walk cycles (legs move)
+const IDLE = { down: 0, up: 2, side: 4 };   // idle poses (used when standing still)
 
 // Fence autotiling: pick the source cell (col,row in the 4x4 Fences.png) from the
 // bitmask of connected neighbours  N=1, E=2, S=4, W=8.
@@ -68,6 +69,69 @@ const HOME_TIERS = [
 ];
 
 const SAPLING_DAYS = 4;   // days for a planted sapling to grow into a choppable tree
+
+// Farm level (separate from the player) — rises as you ship goods, harvest and fish.
+// A higher farm draws better workers to the town job board.
+const FARM_XP_THRESHOLDS = [0, 400, 1200, 3000, 6500, 13000, 24000, 42000];
+const ROLE_INFO = {
+  farmer:  { name: 'Farmer',  desc: 'Waters your crops each morning' },
+  rancher: { name: 'Rancher', desc: 'Gathers milk & eggs each morning' },
+};
+// hireable candidates posted by the local towns; better tiers unlock at higher farm levels.
+// `cap` is the max level a worker can be trained to before you must replace them — and the
+// replacement tier costs a rarer currency: Coins -> Pearls -> Emeralds.
+const HIRE_POOL = [
+  { role: 'farmer',  tier: 'Farmhand',       cap: 3,  cur: 'coins',    hire: 300, upBase: 150, minFarmLv: 2 },
+  { role: 'rancher', tier: 'Ranch Hand',     cap: 3,  cur: 'coins',    hire: 300, upBase: 150, minFarmLv: 2 },
+  { role: 'farmer',  tier: 'Skilled Farmer', cap: 6,  cur: 'pearls',   hire: 10,  upBase: 400, minFarmLv: 4 },
+  { role: 'rancher', tier: 'Stockkeeper',    cap: 6,  cur: 'pearls',   hire: 10,  upBase: 400, minFarmLv: 4 },
+  { role: 'farmer',  tier: 'Master Farmer',  cap: 10, cur: 'emeralds', hire: 6,   upBase: 900, minFarmLv: 6 },
+  { role: 'rancher', tier: 'Master Rancher', cap: 10, cur: 'emeralds', hire: 6,   upBase: 900, minFarmLv: 6 },
+];
+const CUR_NAME = { coins: 'Coins', pearls: 'Pearls', emeralds: 'Emeralds' };
+function currencyAmount(cur) { return cur === 'pearls' ? game.pearls : cur === 'emeralds' ? game.emeralds : game.gold; }
+function spendCurrency(cur, n) { if (cur === 'pearls') game.pearls -= n; else if (cur === 'emeralds') game.emeralds -= n; else game.gold -= n; }
+function farmLevel() {
+  let lv = 1;
+  for (let i = 1; i < FARM_XP_THRESHOLDS.length; i++) if (game.farmXP >= FARM_XP_THRESHOLDS[i]) lv = i + 1;
+  return lv;
+}
+
+// Mail-order catalogue (no shop on the ranch — the big shops are in the towns).
+// Orders arrive by post the next Wednesday; the postman leaves a parcel by the tent.
+const CATALOGUE = [
+  { key: 'parsnip', name: 'Parsnip Seeds', price: CROPS.parsnip.seed },
+  { key: 'carrot',  name: 'Carrot Seeds',  price: CROPS.carrot.seed },
+  { key: 'potato',  name: 'Potato Seeds',  price: CROPS.potato.seed },
+  { key: 'pumpkin', name: 'Pumpkin Seeds', price: CROPS.pumpkin.seed },
+];
+const POST_DOW = 2;   // Wednesday (Mon=0) in WEEKDAYS
+function isPostDay(day) { return ((day - 1) % 7) === POST_DOW; }
+function daysUntilPost() { let d = 1; while (!isPostDay(game.day + d)) d++; return d; }
+
+// Crafting. Recipes cost materials + a coin LABOUR FEE paid to a crafter — until the
+// player has learned that skill themselves (by crafting), after which it's materials-only.
+const LEARN_THRESHOLD = 3;          // crafts in an area before you've "earned the skill"
+const TOOL_MAX = 3;
+const CRAFT_RECIPES = [
+  { id: 'shed',    name: 'Build Tool Shed', area: 'carpentry',    mats: { wood: 80, stone: 30 }, fee: 500, once: true },
+  { id: 'axe',     name: 'Upgrade Axe',     area: 'toolsmithing', mats: { wood: 20, stone: 15 }, fee: 200, needsShed: true, tool: 'axe' },
+  { id: 'pickaxe', name: 'Upgrade Pickaxe', area: 'toolsmithing', mats: { wood: 15, stone: 25 }, fee: 200, needsShed: true, tool: 'pickaxe' },
+  { id: 'can',     name: 'Upgrade Watering Can', area: 'toolsmithing', mats: { wood: 10, stone: 10 }, fee: 150, needsShed: true, tool: 'wateringcan' },
+];
+function skillLearned(area) { return (game.skills[area] || 0) >= LEARN_THRESHOLD; }
+function recipeFee(r) { return skillLearned(r.area) ? 0 : r.fee; }
+function recipeAvailable(r) {
+  if (r.once && r.id === 'shed' && game.shedBuilt) return false;
+  if (r.needsShed && !game.shedBuilt) return false;
+  if (r.tool && (game.toolLevel[r.tool] || 1) >= TOOL_MAX) return false;
+  return true;
+}
+function canCraft(r) {
+  if (!recipeAvailable(r)) return false;
+  for (const k in r.mats) if ((game.bag[k] || 0) < r.mats[k]) return false;
+  return game.gold >= recipeFee(r);
+}
 
 // Fish split by water type — pond fish vs river fish.
 const POND_FISH = [
@@ -130,6 +194,16 @@ const game = {
   gold: 150,                   // Coins (standard currency)
   pearls: 0,                   // mid-tier, from fishing
   emeralds: 0,                 // rare, from mining
+  farmXP: 0,                   // grows the farm level (separate from the player)
+  employees: [],               // hired NPC workers
+  npcId: 0,
+  pendingOrders: [],           // catalogue orders awaiting the next post day (Wednesday)
+  mail: [],                    // delivered items waiting in the parcel by the tent
+  postman: null,               // transient delivery NPC on post day
+  skills: { carpentry: 0, toolsmithing: 0 },   // crafting skill XP (learned at LEARN_THRESHOLD)
+  toolLevel: { axe: 1, pickaxe: 1, wateringcan: 1, hoe: 1 },
+  shedBuilt: false,
+  motes: [],                   // faint drifting ambient particles
   // time
   minutes: DAY_START, day: 1, season: 'Spring',
   minAccum: 0,
@@ -155,18 +229,28 @@ const game = {
   waterfall: [],               // "x,y" tiles drawn as falling water (in front of player)
   bridges: new Set(),          // "x,y" water tiles crossed by a wooden bridge (walkable)
   fords: new Set(),            // "x,y" shallow cobble water the player can wade across
+  lilypads: new Set(),         // "x,y" water tiles with a lily pad the player can hop across
   secretFound: false,          // discovered the grotto behind the falls
   homeIntroShown: false,       // greeted at the home for the first time
   // fishing minigame
   fishing: { active: false, state: '', t: 0, biteAt: 0, biteEnd: 0, tx: 0, ty: 0, type: 'pond' },
   // animated world clock (for water/waterfall shimmer)
   anim: 0,
+  fishLeaps: [],               // transient fish-jump animations over water
+  leapTimer: 3,
+  critters: [],                // ambient butterflies / bees / flies near the player
+  footsteps: [],               // terrain-dependent step puffs
+  stepAccum: 0, stepSide: 1,
+  explored: new Set(),         // tiles the player has discovered (minimap fog of war)
   // flags
   fading: 0, fadeDir: 0, sleeping: false,
   hitFlash: 0, toolUseTime: 0,
   message: '', messageTime: 0,
   paused: false,
   buildMenuOpen: false,
+  hireMenuOpen: false,
+  catalogueOpen: false,
+  craftMenuOpen: false,
   pauseMenuOpen: false,
   started: false,              // becomes true once the player clicks Play
 };
@@ -245,6 +329,13 @@ function genWorld() {
   // --- pond (bottom-right) for pond fish ---
   for (let y = 24; y < 30; y++)
     for (let x = 32; x < 40; x++) setWater(x, y, 'pond');
+  // lily pads forming a hop-across crossing of the pond + a few scattered pads
+  [[32, 26], [33, 26], [34, 27], [35, 27], [36, 26], [37, 26], [38, 26],
+   [34, 25], [37, 28], [33, 28]].forEach(([x, y]) => game.lilypads.add(keyName(x, y)));
+  // reeds/cattails on the land around the pond edge, and a frog basking on a pad
+  [[31, 25], [31, 27], [40, 25], [40, 28], [33, 23], [36, 23], [34, 30], [37, 30]]
+    .forEach(([x, y]) => { if (game.ground[y] && game.ground[y][x] === 'grass') addObject('reed', x, y, {}); });
+  addObject('frog', 34, 25, {});
 
   // dirt paths from the homestead
   for (let y = 8; y < 24; y++) if (game.ground[y][20] === 'grass') game.ground[y][20] = 'path';
@@ -282,7 +373,11 @@ function genWorld() {
   for (let x = 15; x < 20; x++) if (game.ground[13][x] === 'grass') game.ground[13][x] = 'path';
   addObject('sign', 15, 11, { text: 'Harvest Hollow' });
   addObject('bin', 23, 14, {});
-  addObject('shop', 25, 14, {});
+  addObject('jobboard', 27, 14, {});   // hire workers here once your farm grows
+  addObject('workbench', 10, 14, {});  // craft here (build a shed to unlock tool upgrades)
+  // river-bank plants (reeds along the water's edge — no lily pads on flowing water)
+  [[36, 9], [36, 13], [36, 17], [36, 21], [39, 8], [39, 12], [39, 16], [39, 20]]
+    .forEach(([x, y]) => { if (game.ground[y] && game.ground[y][x] === 'grass' && !occupied(x, y)) addObject('reed', x, y, {}); });
 
   // roads leading out of Harvest Hollow — some signed to far-off places, some unknown.
   // (They run to the map edge for now; where they truly lead is for later chapters.)
@@ -344,6 +439,8 @@ function occupied(x, y) {
 // the bed + chest on a walkable porch in front so they stay reachable.
 function setHomeFixtures(h) {
   const t = HOME_TIERS[h.tier];
+  // the catalogue sits just in front of the home (order essentials by post here)
+  h.catalogue = { x: h.x + Math.floor(t.w / 2), y: h.y + t.h };
   if (h.tier <= 2) {
     const fy = h.y + t.h - 1;            // front row
     h.bed = { x: h.x, y: fy };
@@ -364,7 +461,7 @@ function rebuildSolids() {
   for (let y = 0; y < MAP_H; y++)
     for (let x = 0; x < MAP_W; x++) {
       const k = keyName(x, y);
-      if (game.ground[y][x] === 'water' && !game.bridges.has(k) && !game.fords.has(k))
+      if (game.ground[y][x] === 'water' && !game.bridges.has(k) && !game.fords.has(k) && !game.lilypads.has(k))
         game.solid.add(k);
     }
   // raised plateaus are impassable
@@ -381,8 +478,10 @@ function rebuildSolids() {
         for (let yy = 0; yy < t.h; yy++)
           for (let xx = 0; xx < t.w; xx++) game.solid.add(keyName(o.x + xx, o.y + yy));
       }
+    } else if (o.type === 'shed') {
+      for (let yy = 0; yy < 2; yy++) for (let xx = 0; xx < 2; xx++) game.solid.add(keyName(o.x + xx, o.y + yy));
     } else if (o.type === 'tree' || o.type === 'rock' || o.type === 'fence' ||
-               o.type === 'chest' || o.type === 'bin' || o.type === 'shop') {
+               o.type === 'chest' || o.type === 'bin' || o.type === 'jobboard' || o.type === 'workbench') {
       game.solid.add(keyName(o.x, o.y));
       if (o.type === 'fence') game.fenceSet.add(keyName(o.x, o.y));
     }
@@ -415,8 +514,11 @@ const keys = {};
 let mouse = { x: 0, y: 0, down: false };
 
 window.addEventListener('keydown', (e) => {
-  // build menu open: only Escape closes it
+  // a modal menu is open: only Escape closes it
   if (game.buildMenuOpen) { if (e.key === 'Escape') closeBuildMenu(); return; }
+  if (game.hireMenuOpen) { if (e.key === 'Escape') closeHireMenu(); return; }
+  if (game.catalogueOpen) { if (e.key === 'Escape') closeCatalogue(); return; }
+  if (game.craftMenuOpen) { if (e.key === 'Escape') closeCraftMenu(); return; }
   if (game.paused && e.key !== 'Escape') return;
   keys[e.key.toLowerCase()] = true;
   // hotbar select (1-9 and 0 for slot 10)
@@ -525,11 +627,18 @@ function doAction() {
   } else if (item === 'hoe') {
     if (canTill(tx, ty)) { game.tilled.add(keyName(tx, ty)); spendEnergy(2); }
   } else if (item === 'wateringcan') {
-    if (game.tilled.has(keyName(tx, ty))) {
-      game.watered.add(keyName(tx, ty));
-      if (game.crops[keyName(tx, ty)]) game.crops[keyName(tx, ty)].wateredToday = true;
-      spendEnergy(2);
-    }
+    const r = (game.toolLevel.wateringcan || 1) - 1;   // upgraded can waters a wider area
+    let did = false;
+    for (let yy = ty - r; yy <= ty + r; yy++)
+      for (let xx = tx - r; xx <= tx + r; xx++) {
+        const wk = keyName(xx, yy);
+        if (game.tilled.has(wk)) {
+          game.watered.add(wk);
+          if (game.crops[wk]) game.crops[wk].wateredToday = true;
+          did = true;
+        }
+      }
+    if (did) spendEnergy(2);
   } else if (item.startsWith('seed_')) {
     plantSeed(item.slice(5), tx, ty);
   } else if (item === 'axe') {
@@ -587,6 +696,7 @@ function catchFish() {
   const idx = r < 0.5 ? 0 : r < 0.8 ? 1 : r < 0.95 ? 2 : 3;
   const fish = list[Math.min(idx, list.length - 1)];
   addBag(fish.name, 1);
+  game.farmXP += 10;
   // Pearls are a water treasure — a chance to find one while fishing
   if (Math.random() < 0.14) { game.pearls += 1; toast('Caught a ' + fish.name + '! You also found a Pearl!', 4); }
   else toast('Caught a ' + fish.name + '!  (sells for ' + fish.sell + ' coins)');
@@ -596,7 +706,7 @@ function catchFish() {
 function hitObject(kind, tx, ty, drop, amount) {
   const o = game.objects.find(o => o.x === tx && o.y === ty && o.type === kind);
   if (!o) return;
-  o.hp -= 1; o.shake = 0.25; spendEnergy(2);
+  o.hp -= toolPower(kind); o.shake = 0.25; spendEnergy(2);   // upgraded tools hit harder
   if (o.hp <= 0) {
     addBag(drop, amount);
     game.objects = game.objects.filter(x => x !== o);
@@ -616,6 +726,7 @@ function harvestOrCut(tx, ty) {
   if (crop && crop.stage >= def.stages - 1) {
     addBag(crop.type, 1);
     delete game.crops[k];
+    game.farmXP += 15;
     toast('Harvested ' + def.name + '!');
     spendEnergy(1);
   } else {
@@ -658,6 +769,7 @@ function tryInteract(tx, ty) {
   if (home) {
     if (home.bed && tx === home.bed.x && ty === home.bed.y) { startSleep(); return true; }
     if (home.chest && tx === home.chest.x && ty === home.chest.y) { storeInChest(); return true; }
+    if (home.catalogue && tx === home.catalogue.x && ty === home.catalogue.y) { openCatalogue(); return true; }
     const t = HOME_TIERS[home.tier];
     if (tx >= home.x && tx < home.x + t.w && ty >= home.y && ty < home.y + t.h) {
       openBuildMenu(); return true;
@@ -671,10 +783,18 @@ function tryInteract(tx, ty) {
       : 'A weathered signpost, its lettering worn away. The trail winds off into the unknown...', 6);
     return true;
   }
+  // workbench (or the shed) -> crafting
+  if (o && (o.type === 'workbench' || o.type === 'shed')) { openCraftMenu(); return true; }
+  // job board -> hire & manage workers (needs an established farm)
+  if (o && o.type === 'jobboard') {
+    if (farmLevel() < 2) { toast('The job board is bare. Grow your farm (reach Farm Lv 2 by shipping goods) to attract workers.', 6); }
+    else openHireMenu();
+    return true;
+  }
   // shipping bin -> sell all sellable items
   if (o && o.type === 'bin') { sellAll(); return true; }
-  // shop sign -> hint
-  if (o && o.type === 'shop') { toast('Shop: press B to buy seeds (Parsnip 20g).'); return true; }
+  // parcel left by the postman -> collect the delivery
+  if (o && o.type === 'parcel') { collectMail(); return true; }
   // Harvest Hollow sign
   if (o && o.type === 'sign') { toast('Harvest Hollow — your home. For now.'); return true; }
   // the relic in the grotto: the first real clue toward Sandy Cove
@@ -706,18 +826,88 @@ function sellAll() {
     if (SELLABLE[it]) { total += SELLABLE[it] * game.bag[it]; count += game.bag[it]; delete game.bag[it]; }
   }
   game.gold += total;
+  game.farmXP += total;          // shipping grows the farm's reputation/level
   toast(count ? 'Sold ' + count + ' items for ' + total + 'g.' : 'Nothing to ship.');
 }
 
+// the "Order"/B button: open the catalogue if standing near it
 function tryBuy() {
-  // must be near the shop sign
-  const shop = game.objects.find(o => o.type === 'shop');
+  const h = homeObj();
+  if (!h || !h.catalogue) return;
   const pcx = Math.floor((game.px + TS / 2) / TS), pcy = Math.floor((game.py + TS / 2) / TS);
-  if (!shop || Math.hypot(shop.x - pcx, shop.y - pcy) > 2.5) { return; }
-  if (game.gold >= CROPS.parsnip.seed) {
-    game.gold -= CROPS.parsnip.seed; game.seeds.parsnip++;
-    toast('Bought 1 Parsnip seed. (' + game.seeds.parsnip + ')');
-  } else toast('Not enough gold.');
+  if (Math.hypot(h.catalogue.x - pcx, h.catalogue.y - pcy) <= 2.5) openCatalogue();
+  else toast('Find the catalogue by your tent to order supplies.');
+}
+
+// ---- mail-order catalogue + Wednesday post ----
+function orderItem(idx) {
+  const it = CATALOGUE[idx]; if (!it) return false;
+  if (game.gold < it.price) { toast('Not enough coins to order ' + it.name + '.'); return false; }
+  game.gold -= it.price;
+  const ex = game.pendingOrders.find(o => o.key === it.key);
+  if (ex) ex.qty += 1; else game.pendingOrders.push({ key: it.key, name: it.name, qty: 1 });
+  toast('Ordered ' + it.name + ' — arrives in ' + daysUntilPost() + ' day(s), on post day.', 4);
+  saveGame();
+  return true;
+}
+function deliverPost() {
+  // called on a Wednesday: move pending orders (and any quest mail) into a parcel by the tent
+  if (!game.pendingOrders.length && !game.mail.length) return;
+  game.mail = game.mail.concat(game.pendingOrders);
+  game.pendingOrders = [];
+  const h = homeObj();
+  const px = h ? h.catalogue.x : 13, py = (h ? h.catalogue.y : 15) + 1;
+  if (!game.objects.some(o => o.type === 'parcel')) addObject('parcel', px, py, {});
+  // a postman strolls in from the west road to drop it off
+  game.postman = { x: -TS, y: 10 * TS, phase: 'in', tx: px * TS, ty: (py - 1) * TS, frame: 0, animTime: 0, dir: 1, wait: 0 };
+  toast('Post day! The postman is bringing a parcel to your tent.', 6);
+}
+function collectMail() {
+  if (!game.mail.length) { toast('The parcel is empty.'); return; }
+  let n = 0;
+  game.mail.forEach(m => {
+    if (m.key && game.seeds[m.key] != null) game.seeds[m.key] += m.qty;     // seeds
+    else addBag(m.item || m.key, m.qty);                                     // other items / quest goods
+    n += m.qty;
+  });
+  game.mail = [];
+  game.objects = game.objects.filter(o => o.type !== 'parcel');
+  toast('Collected your delivery (' + n + ' item' + (n === 1 ? '' : 's') + ')!', 4);
+  saveGame();
+}
+
+// ---- crafting ----
+function craftRecipe(id) {
+  const r = CRAFT_RECIPES.find(x => x.id === id); if (!r) return false;
+  if (!canCraft(r)) { toast('Not enough materials or coins for ' + r.name + '.'); return false; }
+  for (const k in r.mats) game.bag[k] -= r.mats[k];
+  const fee = recipeFee(r);
+  if (fee) game.gold -= fee;
+  // apply the recipe's effect
+  if (r.id === 'shed') {
+    game.shedBuilt = true;
+    addObject('shed', 9, 15, {});
+    rebuildSolids();
+    toast('Tool Shed built! Toolsmithing is now available at the workbench.', 6);
+  } else if (r.tool) {
+    game.toolLevel[r.tool] = Math.min(TOOL_MAX, (game.toolLevel[r.tool] || 1) + 1);
+    toast(r.name + ' to Lv ' + game.toolLevel[r.tool] + '!', 4);
+  }
+  // earn skill XP; once learned, no more crafter's fee in that area
+  const wasLearned = skillLearned(r.area);
+  game.skills[r.area] = (game.skills[r.area] || 0) + 1;
+  if (!wasLearned && skillLearned(r.area)) {
+    const nm = r.area.charAt(0).toUpperCase() + r.area.slice(1);
+    toast('You\'ve learned ' + nm + '! You can now do it yourself — no more crafter\'s fee.', 7);
+  }
+  saveGame();
+  return true;
+}
+// tool strength used when chopping/mining (improves with upgrades)
+function toolPower(kind) {
+  if (kind === 'tree') return game.toolLevel.axe || 1;
+  if (kind === 'rock') return game.toolLevel.pickaxe || 1;
+  return 1;
 }
 
 function spendEnergy(n) {
@@ -757,6 +947,51 @@ function upgradeHome() {
   return true;
 }
 
+// ---- employees (hired from the town job board) ----
+function hireCandidate(idx) {
+  const c = HIRE_POOL[idx]; if (!c) return false;
+  if (farmLevel() < c.minFarmLv) { toast('Your farm isn\'t established enough for a ' + c.tier + ' yet.'); return false; }
+  if (currencyAmount(c.cur) < c.hire) { toast('Not enough ' + CUR_NAME[c.cur] + ' to hire a ' + c.tier + '.'); return false; }
+  spendCurrency(c.cur, c.hire);
+  const h = homeObj();
+  const e = {
+    id: ++game.npcId, role: c.role, tier: c.tier, level: 1, cap: c.cap, upBase: c.upBase,
+    x: ((h ? h.x : 14) + 1 + Math.random() * 2) * TS, y: ((h ? h.y : 12) + 3 + Math.random() * 2) * TS,
+    vx: 0, vy: 0, t: Math.random() * 2, dir: 1, frame: 0, animTime: 0,
+  };
+  game.employees.push(e);
+  toast('Hired a ' + c.tier + '! They\'ll get to work each morning.', 5);
+  saveGame();
+  return true;
+}
+function empUpgradeCost(e) { return e.upBase * e.level; }
+function upgradeEmployee(id) {
+  const e = game.employees.find(x => x.id === id); if (!e) return false;
+  if (e.level >= e.cap) { toast(e.tier + ' is fully trained (Lv ' + e.cap + '). Dismiss and hire a higher tier to go further.'); return false; }
+  const cost = empUpgradeCost(e);
+  if (game.gold < cost) { toast('Need ' + cost + ' coins to train them.'); return false; }
+  game.gold -= cost; e.level += 1;
+  toast(e.tier + ' trained to Lv ' + e.level + (e.level >= e.cap ? ' (max for this tier).' : '.'), 4);
+  saveGame();
+  return true;
+}
+function dismissEmployee(id) {
+  game.employees = game.employees.filter(x => x.id !== id);
+  toast('Worker let go.'); saveGame();
+}
+// applied each morning during the day rollover
+function applyEmployees() {
+  game.employees.forEach(e => {
+    if (e.role === 'farmer') {
+      const cap = e.level * 8; let n = 0;
+      for (const k in game.crops) { if (n >= cap) break; game.crops[k].wateredToday = true; game.watered.add(k); n++; }
+    } else if (e.role === 'rancher') {
+      game.animals.forEach(a => { if (a.produce) { a.produce = false; addBag(a.kind === 'cow' ? 'milk' : 'egg', 1); } });
+      game.gold += e.level * 8;   // sells a little surplus
+    }
+  });
+}
+
 // ----------------------------------------------------------------- DAY CYCLE
 function startSleep() {
   if (game.sleeping) return;
@@ -792,6 +1027,10 @@ function advanceDay() {
   if (grewTree) rebuildSolids();
   // animals produce again
   game.animals.forEach(a => { a.produce = true; });
+  // hired workers do their morning jobs (water crops, gather produce)
+  applyEmployees();
+  // Wednesday is post day — deliver any catalogue orders / quest mail
+  if (isPostDay(game.day)) deliverPost();
   // respawn a slime occasionally
   if (game.enemies.length < 4 && Math.random() < 0.7)
     game.enemies.push(makeSlime(30 + Math.floor(Math.random() * 8), 3 + Math.floor(Math.random() * 6)));
@@ -802,13 +1041,18 @@ function advanceDay() {
 function saveGame() {
   try {
     const data = {
-      px: game.px, py: game.py, energy: game.energy, health: game.health,
+      ptx: game.px / TS, pty: game.py / TS,   // store position in tiles (scale-independent)
+      energy: game.energy, health: game.health,
       gold: game.gold, pearls: game.pearls, emeralds: game.emeralds,
+      farmXP: game.farmXP, employees: game.employees, npcId: game.npcId,
+      pendingOrders: game.pendingOrders, mail: game.mail,
+      skills: game.skills, toolLevel: game.toolLevel, shedBuilt: game.shedBuilt,
       minutes: game.minutes, day: game.day,
       hotbar: game.hotbar, selected: game.selected, bag: game.bag,
       chest: game.chest, seeds: game.seeds,
       tilled: [...game.tilled], watered: [...game.watered], crops: game.crops,
       objects: game.objects, animals: game.animals.map(a => ({ ...a })),
+      explored: [...game.explored],
       secretFound: game.secretFound, homeIntroShown: game.homeIntroShown,
     };
     localStorage.setItem('harvest_hollow_save', JSON.stringify(data));
@@ -820,13 +1064,20 @@ function loadGame() {
     if (!raw) return false;
     const d = JSON.parse(raw);
     Object.assign(game, {
-      px: d.px, py: d.py, energy: d.energy, health: d.health, gold: d.gold,
+      px: (d.ptx != null ? d.ptx * TS : d.px) || 0, py: (d.pty != null ? d.pty * TS : d.py) || 0,
+      energy: d.energy, health: d.health, gold: d.gold,
       pearls: d.pearls || 0, emeralds: d.emeralds || 0,
+      farmXP: d.farmXP || 0, employees: d.employees || [], npcId: d.npcId || 0,
+      pendingOrders: d.pendingOrders || [], mail: d.mail || [],
+      skills: d.skills || { carpentry: 0, toolsmithing: 0 },
+      toolLevel: d.toolLevel || { axe: 1, pickaxe: 1, wateringcan: 1, hoe: 1 },
+      shedBuilt: !!d.shedBuilt,
       minutes: d.minutes, day: d.day, hotbar: d.hotbar, selected: d.selected,
       bag: d.bag, chest: d.chest, seeds: d.seeds, crops: d.crops, objects: d.objects,
       secretFound: !!d.secretFound, homeIntroShown: !!d.homeIntroShown,
     });
     game.tilled = new Set(d.tilled); game.watered = new Set(d.watered);
+    game.explored = new Set(d.explored || []);
     rebuildSolids();
     return true;
   } catch (e) { return false; }
@@ -845,6 +1096,7 @@ function update(dt) {
   }
 
   game.anim += dt;   // drives water / waterfall shimmer
+  updateFishLeaps(dt);
 
   // ---- time
   game.minAccum += dt * 1000;
@@ -884,6 +1136,8 @@ function update(dt) {
     moveBy((dx / len) * sp * dt, (dy / len) * sp * dt);
     game.animTime += dt;
     if (game.animTime > 0.12) { game.animTime = 0; game.animFrame = (game.animFrame + 1) % 6; }
+    game.stepAccum += sp * dt;                       // leave terrain-styled footprints
+    if (game.stepAccum >= TS * 0.6) { game.stepAccum = 0; emitFootstep(); }
   } else { game.animFrame = 0; }
 
   if (game.toolUseTime > 0) game.toolUseTime -= dt;
@@ -891,8 +1145,119 @@ function update(dt) {
   if (game.messageTime > 0) game.messageTime -= dt;
 
   checkHomeIntro();
+  markExplored();
   updateAnimals(dt);
+  updateEmployees(dt);
+  updatePostman(dt);
+  updateCritters(dt);
+  updateFootsteps(dt);
+  updateMotes(dt);
   updateEnemies(dt);
+}
+
+// the postman walks in on post day, pauses by the tent, then heads back out
+function updatePostman(dt) {
+  const p = game.postman; if (!p) return;
+  const spd = 72;
+  if (p.phase === 'in') {
+    const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy) || 1;
+    p.dir = dx < 0 ? -1 : 1;
+    if (d > 5) { p.x += dx / d * spd * dt; p.y += dy / d * spd * dt; }
+    else { p.wait += dt; if (p.wait > 1.2) p.phase = 'out'; }
+  } else {
+    p.dir = -1; p.x -= spd * dt;
+    if (p.x < -TS) game.postman = null;
+  }
+  if (p) { p.animTime += dt; if (p.animTime > 0.14) { p.animTime = 0; p.frame = (p.frame + 1) % 6; } }
+}
+
+// reveal minimap tiles within sight of the player (fog of war)
+function markExplored() {
+  const pcx = Math.floor((game.px + TS / 2) / TS), pcy = Math.floor((game.py + TS / 2) / TS);
+  const R = 5;
+  for (let dy = -R; dy <= R; dy++)
+    for (let dx = -R; dx <= R; dx++) {
+      if (dx * dx + dy * dy > R * R) continue;
+      const x = pcx + dx, y = pcy + dy;
+      if (x >= 0 && y >= 0 && x < MAP_W && y < MAP_H) game.explored.add(keyName(x, y));
+    }
+}
+
+function updateFishLeaps(dt) {
+  game.leapTimer -= dt;
+  if (game.leapTimer <= 0) {
+    game.leapTimer = 3 + Math.random() * 5;
+    const keys = Object.keys(game.waterType);
+    if (keys.length) {
+      const [x, y] = keys[Math.floor(Math.random() * keys.length)].split(',').map(Number);
+      game.fishLeaps.push({ x, y, t: 0, dur: 0.8 + Math.random() * 0.3, dir: Math.random() < 0.5 ? -1 : 1 });
+    }
+  }
+  game.fishLeaps = game.fishLeaps.filter(f => (f.t += dt) < f.dur);
+}
+
+// ambient critters (butterflies, bees, flies) that drift around the player for atmosphere
+const BFLY_COLORS = ['#ff7eb6', '#ffd14d', '#7ec8ff', '#b07eff', '#ff9e57', '#ffffff', '#8affc0'];
+function makeCritter(px, py) {
+  const r = Math.random();
+  const kind = r < 0.55 ? 'butterfly' : r < 0.8 ? 'bee' : 'fly';
+  const a = Math.random() * 7, dist = (2 + Math.random() * 6) * TS;
+  return {
+    kind, x: px + Math.cos(a) * dist, y: py + Math.sin(a) * dist, vx: 0, vy: 0, t: 0,
+    phase: Math.random() * 7,
+    col: kind === 'butterfly' ? BFLY_COLORS[Math.floor(Math.random() * BFLY_COLORS.length)] : kind === 'bee' ? '#f2c14e' : '#33343a',
+    spd: kind === 'butterfly' ? 24 : kind === 'bee' ? 42 : 64,
+    flutter: kind === 'butterfly' ? 7 : kind === 'bee' ? 17 : 28,
+    amp: kind === 'butterfly' ? 7 : kind === 'bee' ? 3 : 2,
+  };
+}
+function updateCritters(dt) {
+  const px = game.px + TS / 2, py = game.py + TS / 2;
+  if (game.critters.length < 9) game.critters.push(makeCritter(px, py));
+  game.critters.forEach(c => {
+    c.t -= dt;
+    if (c.t <= 0) { c.t = 0.5 + Math.random() * 1.3; const a = Math.random() * 7; c.vx = Math.cos(a) * c.spd; c.vy = Math.sin(a) * c.spd; }
+    c.x += c.vx * dt; c.y += c.vy * dt;
+    c.x += (px - c.x) * 0.15 * dt; c.y += (py - c.y) * 0.15 * dt;   // gently linger near you
+  });
+  game.critters = game.critters.filter(c => Math.hypot(c.x - px, c.y - py) < 11 * TS);
+}
+
+// footstep feedback — a little puff at the player's feet, styled by the terrain
+function emitFootstep() {
+  const cxp = game.px + TS / 2;
+  const tx = Math.floor(cxp / TS), ty = Math.floor((game.py + TS - 6) / TS);
+  let terr = (game.ground[ty] && game.ground[ty][tx]) || 'grass';
+  const k = keyName(tx, ty);
+  if (game.fords.has(k)) terr = 'water';
+  else if (game.tilled.has(k)) terr = 'dirt';
+  game.footsteps.push({ x: cxp + game.stepSide * 5, y: game.py + TS - 5, t: 0, dur: 0.55, type: terr });
+  game.stepSide = -game.stepSide;
+}
+function updateFootsteps(dt) {
+  game.footsteps = game.footsteps.filter(f => (f.t += dt) < f.dur);
+}
+
+// faint drifting motes (pollen/dust) in screen space, for subtle ambience
+function updateMotes(dt) {
+  const W = canvas.width, H = canvas.height;
+  if (game.motes.length < 26) {
+    game.motes.push({ x: Math.random() * W, y: Math.random() * H, vx: 4 + Math.random() * 8,
+                      vy: 5 + Math.random() * 10, r: 0.8 + Math.random() * 1.4, phase: Math.random() * 7 });
+  }
+  game.motes.forEach(m => {
+    m.x += (m.vx + Math.sin(game.anim * 0.6 + m.phase) * 6) * dt;
+    m.y += m.vy * dt;
+    if (m.y > H + 4) { m.y = -4; m.x = Math.random() * W; }
+    if (m.x > W + 4) m.x = -4; else if (m.x < -4) m.x = W + 4;
+  });
+}
+function drawMotes() {
+  game.motes.forEach(m => {
+    const a = 0.10 + 0.12 * (0.5 + 0.5 * Math.sin(game.anim * 1.2 + m.phase));
+    ctx.fillStyle = 'rgba(255,252,235,' + a.toFixed(3) + ')';
+    ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, 7); ctx.fill();
+  });
 }
 
 // first time the player walks up to their shelter, explain what the home is for
@@ -940,6 +1305,20 @@ function updateAnimals(dt) {
     a.x = Math.max(6.5 * TS, Math.min(12 * TS, a.x));
     a.y = Math.max(22.5 * TS, Math.min(27 * TS, a.y));
     a.animTime += dt; if (a.animTime > 0.25) { a.animTime = 0; a.frame = (a.frame + 1) % 2; }
+  });
+}
+
+// hired workers wander the farm (purely visual; their real work happens each morning)
+function updateEmployees(dt) {
+  const h = homeObj();
+  const cx = (h ? h.x : 14) * TS, cy = (h ? h.y : 12) * TS;
+  game.employees.forEach(e => {
+    e.t -= dt;
+    if (e.t <= 0) { e.t = 1.5 + Math.random() * 2.5; e.vx = (Math.random() - 0.5) * 34; e.vy = (Math.random() - 0.5) * 34; e.dir = e.vx < 0 ? -1 : 1; }
+    e.x += e.vx * dt; e.y += e.vy * dt;
+    e.x = Math.max(cx - 4 * TS, Math.min(cx + 10 * TS, e.x));   // roam near the homestead
+    e.y = Math.max(cy, Math.min(cy + 10 * TS, e.y));
+    e.animTime += dt; if (e.animTime > 0.16) { e.animTime = 0; e.frame = (e.frame + 1) % 6; }
   });
 }
 
@@ -997,6 +1376,7 @@ function render() {
       drawGround(game.ground[y][x], x, y, dx, dy);
       if (game.bridges.has(k)) drawBridge(x, y, dx, dy);
       else if (game.fords.has(k)) drawFord(x, y, dx, dy);
+      else if (game.lilypads.has(k)) drawLily(x, y, dx, dy);
       if (game.cliff.has(k)) drawCliffTile(x, y, dx, dy);
       if (game.tilled.has(k)) drawTilled(x, y, dx, dy, game.watered.has(k));
     }
@@ -1008,23 +1388,39 @@ function render() {
     drawCrop(game.crops[k], x * TS - cx, y * TS - cy);
   }
 
+  // ---- footstep marks on the ground (under everything else)
+  drawFootsteps(cx, cy);
+  // ---- leaping fish (over the water surface)
+  drawFishLeaps(cx, cy);
+
   // ---- depth-sorted sprites (objects + player + animals + enemies)
   const drawables = [];
   game.objects.forEach(o => drawables.push({ sortY: objSortY(o), draw: () => drawObject(o, cx, cy) }));
   game.animals.forEach(a => drawables.push({ sortY: a.y + TS, draw: () => drawAnimal(a, cx, cy) }));
+  game.employees.forEach(e => drawables.push({ sortY: e.y + TS, draw: () => drawNPC(e, cx, cy) }));
+  if (game.postman) drawables.push({ sortY: game.postman.y + TS, draw: () => drawPostman(cx, cy) });
   game.enemies.forEach(e => drawables.push({ sortY: e.y + TS, draw: () => drawSlime(e, cx, cy) }));
   drawables.push({ sortY: game.py + TS, draw: () => drawPlayer(cx, cy) });
   drawables.sort((a, b) => a.sortY - b.sortY);
   drawables.forEach(d => d.draw());
+
+  // ---- ambient critters fluttering above the scene
+  drawCritters(cx, cy);
 
   // ---- waterfall is drawn in FRONT so the player can stand behind it
   drawWaterfalls(cx, cy);
   // ---- fishing line + bobber
   drawFishing(cx, cy);
 
+  // ---- drifting mist at the map edges
+  drawEdgeFog(cx, cy);
+
   // ---- night overlay
   const nt = nightTint();
   if (nt > 0) { ctx.fillStyle = 'rgba(20,24,70,' + nt + ')'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+
+  // ---- faint drifting motes (subtle ambience, above the world)
+  drawMotes();
 
   // ---- facing-tile highlight when a tool is selected
   drawTargetHighlight(cx, cy);
@@ -1054,6 +1450,7 @@ function drawJoystick() {
 function objSortY(o) {
   if (o.type === 'house') return (o.y + o.h) * TS;
   if (o.type === 'home') return (o.y + HOME_TIERS[o.tier].h) * TS;
+  if (o.type === 'shed') return (o.y + 2) * TS;
   if (o.type === 'tree') return (o.y + 1) * TS;
   return (o.y + 1) * TS;
 }
@@ -1074,7 +1471,34 @@ function drawGround(type, x, y, dx, dy) {
   if (ready(img)) ctx.drawImage(img, 0, 0, 16, 16, dx, dy, TS, TS);
   else { ctx.fillStyle = type === 'water' ? '#3aa9e0' : '#6cbf4b'; ctx.fillRect(dx, dy, TS, TS); }
   if (type === 'grass') textureGrass(x, y, dx, dy);
-  else if (type === 'water') textureWater(x, y, dx, dy);
+  else if (type === 'water') { textureWater(x, y, dx, dy); featherWater(x, y, dx, dy); }
+}
+
+// soften the water/grass boundary: a pale shallows rim + grass tufts overhanging from the land
+function featherWater(x, y, dx, dy) {
+  const isW = (nx, ny) => { const g = game.ground[ny] && game.ground[ny][nx]; return g === 'water'; };
+  const shallow = 'rgba(150,200,212,0.4)';
+  const greens = ['#4f9a37', '#5aa84b', '#3f7f2c'];
+  const tuft = (px, py, s) => { ctx.fillStyle = greens[Math.floor(tileRand(x, y, s) * greens.length)]; ctx.beginPath(); ctx.arc(px, py, 1.8 + tileRand(x, y, s + 1) * 1.3, 0, 7); ctx.fill(); };
+  if (!isW(x, y - 1)) { ctx.fillStyle = shallow; ctx.fillRect(dx, dy, TS, 5); for (let i = 0; i < 4; i++) tuft(dx + 4 + tileRand(x, y, i + 10) * (TS - 8), dy + 1 + tileRand(x, y, i + 11) * 4, i + 12); }
+  if (!isW(x, y + 1)) { ctx.fillStyle = shallow; ctx.fillRect(dx, dy + TS - 5, TS, 5); for (let i = 0; i < 4; i++) tuft(dx + 4 + tileRand(x, y, i + 20) * (TS - 8), dy + TS - 1 - tileRand(x, y, i + 21) * 4, i + 22); }
+  if (!isW(x - 1, y)) { ctx.fillStyle = shallow; ctx.fillRect(dx, dy, 5, TS); for (let i = 0; i < 4; i++) tuft(dx + 1 + tileRand(x, y, i + 30) * 4, dy + 4 + tileRand(x, y, i + 31) * (TS - 8), i + 32); }
+  if (!isW(x + 1, y)) { ctx.fillStyle = shallow; ctx.fillRect(dx + TS - 5, dy, 5, TS); for (let i = 0; i < 4; i++) tuft(dx + TS - 1 - tileRand(x, y, i + 40) * 4, dy + 4 + tileRand(x, y, i + 41) * (TS - 8), i + 42); }
+}
+
+// a lily pad floating on the water (walkable — hop across to cross quickly)
+function drawLily(x, y, dx, dy) {
+  const bob = Math.sin(game.anim * 1.6 + (x * 3 + y)) * 1.5;
+  const cxp = dx + TS / 2, cyp = dy + TS / 2 + bob;
+  ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.beginPath(); ctx.ellipse(cxp, cyp + 3, TS * 0.34, TS * 0.2, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#3f8f3a'; ctx.beginPath(); ctx.ellipse(cxp, cyp, TS * 0.36, TS * 0.3, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#54a64a'; ctx.beginPath(); ctx.ellipse(cxp, cyp, TS * 0.29, TS * 0.24, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#2f74c0'; ctx.beginPath();   // notch cut toward water colour
+  ctx.moveTo(cxp, cyp); ctx.lineTo(cxp + TS * 0.36, cyp - 7); ctx.lineTo(cxp + TS * 0.36, cyp + 7); ctx.closePath(); ctx.fill();
+  if (((x * 7 + y * 13) % 4) === 0) {            // some pads bear a flower
+    ctx.fillStyle = '#ff9ec4'; ctx.beginPath(); ctx.arc(cxp - 5, cyp - 4, 3.5, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ffd14d'; ctx.beginPath(); ctx.arc(cxp - 5, cyp - 4, 1.4, 0, 7); ctx.fill();
+  }
 }
 
 // soften the path/grass boundary: scatter grass tufts over the path edge wherever
@@ -1228,6 +1652,101 @@ function drawFishing(cx, cy) {
   }
 }
 
+// occasional fish leaping from ponds/rivers — a little arc with a splash
+function drawFishLeaps(cx, cy) {
+  game.fishLeaps.forEach(f => {
+    const p = f.t / f.dur;
+    const baseX = f.x * TS - cx + TS / 2, baseY = f.y * TS - cy + TS / 2;
+    const arc = Math.sin(Math.PI * p);
+    const fx = baseX + f.dir * (p - 0.5) * TS * 0.7;
+    const fy = baseY - arc * TS * 0.95;
+    if (p < 0.28 || p > 0.72) {                       // splash rings at entry/exit
+      const e = p < 0.28 ? p / 0.28 : (1 - p) / 0.28;
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.55 * (1 - e)) + ')'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(baseX, baseY, 5 + e * 16, 3 + e * 4, 0, 0, 7); ctx.stroke();
+    }
+    ctx.save(); ctx.translate(fx, fy); ctx.rotate(f.dir * (p - 0.5) * 1.5);
+    ctx.fillStyle = '#a9c0d2'; ctx.beginPath(); ctx.ellipse(0, 0, 8, 3.5, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#7c93a6'; ctx.beginPath(); ctx.moveTo(-7, 0); ctx.lineTo(-13, -4); ctx.lineTo(-13, 4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#eef4f8'; ctx.beginPath(); ctx.arc(4, -1, 1.4, 0, 7); ctx.fill();   // eye glint
+    ctx.restore();
+  });
+}
+
+// soft drifting mist that thickens toward the map edges (hides the world beyond)
+function drawEdgeFog(cx, cy) {
+  const depth = 3.4 * TS;
+  const a = 0.72 + Math.sin(game.anim * 0.4) * 0.06;
+  const col = (al) => 'rgba(226,231,240,' + al + ')';
+  const W = canvas.width, H = canvas.height;
+  const strip = (x0, y0, x1, y1, rx, ry, rw, rh) => {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, col(a)); g.addColorStop(1, col(0));
+    ctx.fillStyle = g; ctx.fillRect(rx, ry, rw, rh);
+  };
+  const left = 0 - cx, right = MAP_W * TS - cx, top = 0 - cy, bot = MAP_H * TS - cy;
+  if (left + depth > 0)  strip(left, 0, left + depth, 0, left, 0, depth, H);
+  if (right - depth < W) strip(right, 0, right - depth, 0, right - depth, 0, depth, H);
+  if (top + depth > 0)   strip(0, top, 0, top + depth, 0, top, W, depth);
+  if (bot - depth < H)   strip(0, bot, 0, bot - depth, 0, bot - depth, W, depth);
+}
+
+function drawFootsteps(cx, cy) {
+  game.footsteps.forEach(f => {
+    const p = f.t / f.dur, a = (1 - p);
+    const x = f.x - cx, y = f.y - cy;
+    if (f.type === 'water') {
+      ctx.strokeStyle = 'rgba(210,235,250,' + (a * 0.8) + ')'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(x, y, 3 + p * 8, 1.5 + p * 3, 0, 0, 7); ctx.stroke();
+    } else if (f.type === 'path' || f.type === 'dirt') {
+      ctx.fillStyle = 'rgba(150,120,80,' + (a * 0.5) + ')';
+      ctx.beginPath(); ctx.ellipse(x, y, 3 + p * 5, 2 + p * 3, 0, 0, 7); ctx.fill();
+    } else {  // grass: a couple of flicked blades
+      ctx.strokeStyle = 'rgba(70,140,55,' + (a * 0.7) + ')'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x - 2, y); ctx.lineTo(x - 4, y - 3 - p * 2);
+      ctx.moveTo(x + 2, y); ctx.lineTo(x + 4, y - 3 - p * 2); ctx.stroke();
+    }
+  });
+}
+
+function drawCritters(cx, cy) {
+  game.critters.forEach(c => {
+    const flap = 0.4 + 0.6 * Math.abs(Math.sin(game.anim * c.flutter + c.phase));
+    const x = c.x - cx, y = c.y - cy + Math.sin(game.anim * c.flutter + c.phase) * c.amp;
+    if (c.kind === 'butterfly') {
+      ctx.fillStyle = c.col;
+      ctx.beginPath(); ctx.ellipse(x - 3 * flap, y, 3.2, 4.6 * flap + 1.4, -0.5, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + 3 * flap, y, 3.2, 4.6 * flap + 1.4, 0.5, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(40,30,30,0.7)'; ctx.fillRect(x - 0.7, y - 3, 1.4, 6);
+    } else if (c.kind === 'bee') {
+      ctx.fillStyle = 'rgba(255,255,255,' + (0.35 + 0.4 * flap) + ')';
+      ctx.beginPath(); ctx.ellipse(x, y - 2, 2.6 * flap + 0.6, 1.6, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = c.col; ctx.beginPath(); ctx.ellipse(x, y, 3.2, 2.4, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#3a2a14'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x - 1.5, y - 2); ctx.lineTo(x - 1.5, y + 2); ctx.moveTo(x + 1, y - 2); ctx.lineTo(x + 1, y + 2); ctx.stroke();
+    } else {  // fly
+      ctx.fillStyle = 'rgba(230,235,245,0.35)';
+      ctx.beginPath(); ctx.arc(x - 1.6, y - 1, 1.3, 0, 7); ctx.arc(x + 1.6, y - 1, 1.3, 0, 7); ctx.fill();
+      ctx.fillStyle = c.col; ctx.beginPath(); ctx.arc(x, y, 1.7, 0, 7); ctx.fill();
+    }
+  });
+}
+
+// shadow direction/length from the time of day (sun east in the morning -> shadow west, etc.)
+function sunShadow() {
+  const m = game.minutes % (24 * 60);
+  if (m < 6 * 60 || m >= 20 * 60) return { sx: 0, len: 0.7, alpha: 0.12 };  // night: faint, round
+  const slope = Math.max(-1, Math.min(1, (m - 780) / 420));                  // -1 dawn .. +1 dusk
+  return { sx: slope, len: 0.7 + Math.abs(slope) * 1.7, alpha: 0.24 };
+}
+function drawShadow(fx, fy, w) {
+  const s = sunShadow();
+  ctx.fillStyle = 'rgba(0,0,0,' + s.alpha + ')';
+  ctx.beginPath();
+  ctx.ellipse(fx + s.sx * w * s.len * 0.5, fy, w * 0.5 * s.len, w * 0.22, 0, 0, 7);
+  ctx.fill();
+}
+
 // crops are drawn procedurally so growth always reads clearly (easy to swap for art)
 function drawCrop(c, dx, dy) {
   const def = CROPS[c.type];
@@ -1257,11 +1776,13 @@ function drawObject(o, cx, cy) {
   if (o.shake) o.shake -= 1 / 60;
   switch (o.type) {
     case 'tree':
+      drawShadow(dx + TS / 2, dy + TS - 4, TS * 0.95);
       // Oak_Tree.png is 64x80; anchor base to tile, sprite taller than tile
       if (ready(IMG.oakTree)) ctx.drawImage(IMG.oakTree, dx - TS / 2 + sh, dy - TS * 2.6, IMG.oakTree.width * SCALE, IMG.oakTree.height * SCALE);
       else fallbackBox(dx, dy, '#2e7d32');
       break;
     case 'rock':
+      drawShadow(dx + TS / 2, dy + TS - 4, TS * 0.6);
       // a rock cell from the decor sheet (7 cols of 16px) -> pick a gray rock
       if (ready(IMG.decor)) ctx.drawImage(IMG.decor, 0, 48, 16, 16, dx + sh, dy, TS, TS);
       else fallbackBox(dx, dy, '#888');
@@ -1319,6 +1840,59 @@ function drawObject(o, cx, cy) {
       ctx.strokeStyle = '#5a3f24'; ctx.lineWidth = 2;
       ctx.fillRect(dx - 10, dy - 18, TS + 20, 16); ctx.strokeRect(dx - 10, dy - 18, TS + 20, 16);
       label(dx + TS / 2, dy - 22, o.known ? o.text.toUpperCase() : '???');
+      break;
+    }
+    case 'jobboard': {
+      ctx.fillStyle = '#6b4226'; ctx.fillRect(dx - 2, dy - 4, 5, TS + 4); ctx.fillRect(dx + TS - 3, dy - 4, 5, TS + 4);
+      ctx.fillStyle = '#caa05a'; ctx.strokeStyle = '#5a3f24'; ctx.lineWidth = 2;
+      ctx.fillRect(dx - 6, dy - 18, TS + 12, 22); ctx.strokeRect(dx - 6, dy - 18, TS + 12, 22);
+      ctx.fillStyle = '#fff';                                        // pinned notes
+      ctx.fillRect(dx - 2, dy - 15, 8, 9); ctx.fillRect(dx + 8, dy - 14, 8, 8); ctx.fillRect(dx + TS - 8, dy - 15, 7, 9);
+      label(dx + TS / 2, dy - 22, 'JOBS'); break;
+    }
+    case 'reed': {
+      ctx.strokeStyle = '#3f7f3a'; ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        const bx = dx + TS / 2 + (i - 1) * 6, sway = Math.sin(game.anim * 1.3 + i + o.x) * 3;
+        ctx.beginPath(); ctx.moveTo(bx, dy + TS - 2);
+        ctx.quadraticCurveTo(bx + sway, dy + TS - 20, bx + sway, dy + TS - 30); ctx.stroke();
+        ctx.fillStyle = '#7a4a26'; ctx.fillRect(bx + sway - 1.5, dy + TS - 34, 3, 9);   // cattail head
+      }
+      break;
+    }
+    case 'workbench': {
+      ctx.fillStyle = '#8a5a2b'; ctx.fillRect(dx + 4, dy + TS * 0.45, TS - 8, TS * 0.5);   // bench top
+      ctx.fillStyle = '#6b4226'; ctx.fillRect(dx + 6, dy + TS * 0.7, 5, TS * 0.3); ctx.fillRect(dx + TS - 11, dy + TS * 0.7, 5, TS * 0.3);
+      ctx.fillStyle = '#cfd6dd'; ctx.fillRect(dx + 8, dy + TS * 0.4, 6, 5);                   // a saw/tool on it
+      ctx.fillStyle = '#9c6b3f'; ctx.fillRect(dx + TS - 16, dy + TS * 0.38, 8, 7);
+      label(dx + TS / 2, dy + TS * 0.4 - 2, 'CRAFT'); break;
+    }
+    case 'shed': {
+      const W2 = 2 * TS, H2 = 2 * TS;
+      ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fillRect(dx + 4, dy + H2 - 6, W2 - 8, 6);
+      ctx.fillStyle = '#b07c3f'; ctx.fillRect(dx + 4, dy + H2 * 0.4, W2 - 8, H2 * 0.6 - 4);   // walls
+      ctx.fillStyle = '#7a4a26'; ctx.beginPath();                                              // roof
+      ctx.moveTo(dx, dy + H2 * 0.45); ctx.lineTo(dx + W2 / 2, dy + 6); ctx.lineTo(dx + W2, dy + H2 * 0.45); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#5a3a1c'; ctx.fillRect(dx + W2 / 2 - 10, dy + H2 - 30, 20, 30);         // door
+      label(dx + W2 / 2, dy + 2, 'TOOL SHED'); break;
+    }
+    case 'parcel': {
+      const bob = Math.sin(game.anim * 3) * 1.5;
+      const py0 = dy + TS / 2 - 10 + bob;
+      ctx.fillStyle = '#b58a52'; ctx.fillRect(dx + TS / 2 - 12, py0, 24, 20);
+      ctx.strokeStyle = '#7a5a2a'; ctx.lineWidth = 2; ctx.strokeRect(dx + TS / 2 - 12, py0, 24, 20);
+      ctx.strokeStyle = '#9c2b2b'; ctx.beginPath();
+      ctx.moveTo(dx + TS / 2, py0); ctx.lineTo(dx + TS / 2, py0 + 20);
+      ctx.moveTo(dx + TS / 2 - 12, py0 + 7); ctx.lineTo(dx + TS / 2 + 12, py0 + 7); ctx.stroke();
+      label(dx + TS / 2, py0 - 6, 'POST');
+      break;
+    }
+    case 'frog': {
+      const hop = Math.abs(Math.sin(game.anim * 0.8)) * 2;
+      const fx = dx + TS / 2, fy = dy + TS / 2 - hop;
+      ctx.fillStyle = '#4faa42'; ctx.beginPath(); ctx.ellipse(fx, fy, 6, 4, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#3f8f3a'; ctx.beginPath(); ctx.arc(fx - 4, fy - 3, 2.2, 0, 7); ctx.arc(fx + 4, fy - 3, 2.2, 0, 7); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(fx - 4, fy - 3, 1, 0, 7); ctx.arc(fx + 4, fy - 3, 1, 0, 7); ctx.fill();
       break;
     }
     case 'relic': {
@@ -1389,11 +1963,20 @@ function drawHome(o, dx, dy) {
     } else fallbackBox(dx, dy, '#7a4', W, H);
   }
 
-  // the usable bed + chest, at their fixture tiles (visible for every tier)
+  // the usable bed + chest + order catalogue, at their fixture tiles (every tier)
   if (o.bed) drawBedAt(dx + (o.bed.x - o.x) * TS, dy + (o.bed.y - o.y) * TS);
   if (o.chest) drawChestAt(dx + (o.chest.x - o.x) * TS, dy + (o.chest.y - o.y) * TS);
+  if (o.catalogue) drawCatalogueAt(dx + (o.catalogue.x - o.x) * TS, dy + (o.catalogue.y - o.y) * TS);
 
   label(dx + W / 2, dy - 4, t.name.toUpperCase());
+}
+
+function drawCatalogueAt(bx, by) {
+  ctx.fillStyle = '#6b4226'; ctx.fillRect(bx + TS / 2 - 2, by + 12, 4, TS - 14);   // post
+  ctx.fillStyle = '#caa05a'; ctx.fillRect(bx + TS / 2 - 12, by + 4, 24, 15);       // open booklet
+  ctx.fillStyle = '#fff'; ctx.fillRect(bx + TS / 2 - 10, by + 6, 9, 11); ctx.fillRect(bx + TS / 2 + 1, by + 6, 9, 11);
+  ctx.strokeStyle = '#5a3f24'; ctx.lineWidth = 1; ctx.strokeRect(bx + TS / 2 - 12, by + 4, 24, 15);
+  label(bx + TS / 2, by - 2, 'CATALOGUE');
 }
 
 function drawBedAt(bx, by) {
@@ -1420,12 +2003,14 @@ function label(x, y, text) {
 }
 
 function drawPlayer(cx, cy) {
+  drawShadow(game.px - cx + TS / 2, game.py - cy + TS - 4, TS * 0.62);   // time-of-day shadow
   const dx = game.px * 1 - cx - (PDRAW - TS) / 2;  // center 96px sprite over the 48px footprint
   const dy = game.py * 1 - cy - (PDRAW - TS);      // feet at footprint bottom
-  let row = WALK.down, flip = false;
-  if (game.facing === 'up') row = WALK.up;
-  else if (game.facing === 'down') row = WALK.down;
-  else { row = WALK.side; flip = (game.facing === 'left'); }
+  const set = game.moving ? WALK : IDLE;
+  let row = set.down, flip = false;
+  if (game.facing === 'up') row = set.up;
+  else if (game.facing === 'down') row = set.down;
+  else { row = set.side; flip = (game.facing === 'left'); }
   const frame = game.moving ? game.animFrame : 0;
 
   if (ready(IMG.player)) {
@@ -1449,6 +2034,38 @@ function drawAnimal(a, cx, cy) {
     ctx.restore();
   } else { fallbackBox(dx + 20, dy + 40, a.kind === 'chicken' ? '#fff' : '#ddd'); }
   if (a.produce) label(a.x - cx + TS / 2, dy + 28, a.kind === 'cow' ? 'milk' : 'egg');
+}
+
+// a hired worker: the character sprite + a coloured role banner so they read as staff
+function drawNPC(e, cx, cy) {
+  const dx = e.x - cx - (PDRAW - TS) / 2, dy = e.y - cy - (PDRAW - TS);
+  let row = WALK.down, flip = false;
+  if (e.dir < 0) { row = WALK.side; flip = true; } else if (Math.abs(e.vx) > Math.abs(e.vy)) { row = WALK.side; }
+  if (ready(IMG.player)) {
+    ctx.save();
+    if (flip) { ctx.translate(dx + PDRAW, dy); ctx.scale(-1, 1); ctx.translate(-dx, -dy); }
+    ctx.drawImage(IMG.player, (e.frame % 6) * PF, row * PF, PF, PF, dx, dy, PDRAW, PDRAW);
+    ctx.restore();
+    // tint overlay clipped to the sprite area, to distinguish from the player
+    ctx.fillStyle = e.role === 'farmer' ? 'rgba(90,200,90,0.16)' : 'rgba(90,150,255,0.16)';
+    ctx.fillRect(dx + PF, dy + PF, PF, PF * 1.5);
+  } else { ctx.fillStyle = e.role === 'farmer' ? '#5a3' : '#36c'; ctx.fillRect(dx + 30, dy + 40, 36, 50); }
+  // role banner above their head
+  label(e.x - cx + TS / 2, dy + 30, (e.role === 'farmer' ? 'FARMER' : 'RANCHER') + ' L' + e.level);
+}
+
+function drawPostman(cx, cy) {
+  const p = game.postman;
+  const dx = p.x - cx - (PDRAW - TS) / 2, dy = p.y - cy - (PDRAW - TS);
+  const flip = p.dir < 0;
+  if (ready(IMG.player)) {
+    ctx.save();
+    if (flip) { ctx.translate(dx + PDRAW, dy); ctx.scale(-1, 1); ctx.translate(-dx, -dy); }
+    ctx.drawImage(IMG.player, (p.frame % 6) * PF, WALK.side * PF, PF, PF, dx, dy, PDRAW, PDRAW);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(70,110,220,0.2)'; ctx.fillRect(dx + PF, dy + PF, PF, PF * 1.5);  // blue post uniform tint
+  } else { ctx.fillStyle = '#3a6'; ctx.fillRect(dx + 30, dy + 40, 36, 50); }
+  label(p.x - cx + TS / 2, dy + 30, 'POST');
 }
 
 function drawSlime(e, cx, cy) {
@@ -1488,6 +2105,7 @@ const hud = {
   pearls: document.getElementById('pearls'),
   emeralds: document.getElementById('emeralds'),
   minimap: document.getElementById('minimap'),
+  farmLv: document.getElementById('farmLv'),
 };
 const dialCtx = hud.dial ? hud.dial.getContext('2d') : null;
 const miniCtx = hud.minimap ? hud.minimap.getContext('2d') : null;
@@ -1629,6 +2247,7 @@ function updateHUD() {
   hud.gold.textContent = game.gold.toLocaleString();
   if (hud.pearls) hud.pearls.textContent = game.pearls;
   if (hud.emeralds) hud.emeralds.textContent = game.emeralds;
+  if (hud.farmLv) hud.farmLv.textContent = 'Farm Lv ' + farmLevel();
   hud.energyBar.style.height = Math.max(0, game.energy / game.maxEnergy * 100) + '%';
   hud.healthBar.style.height = Math.max(0, game.health / game.maxHealth * 100) + '%';
   drawDial();
@@ -1654,20 +2273,28 @@ function drawMinimap() {
   for (let y = 0; y < MAP_H; y++) {
     for (let x = 0; x < MAP_W; x++) {
       const k = keyName(x, y);
-      let c = '#4f9a3c';                                  // grass
-      const g = game.ground[y][x];
-      if (g === 'water') c = game.waterType[k] === 'river' ? '#3f8fd0' : '#2f74c0';
-      else if (g === 'path') c = '#c2a06a';
-      if (game.cliff.has(k)) c = '#8a7a5c';
-      if (game.bridges.has(k) || game.fords.has(k)) c = '#b98a4a';
-      if (game.tilled.has(k)) c = '#7a5128';
+      let c;
+      if (!game.explored.has(k)) {
+        c = '#2a2533';                                   // fog of war — undiscovered
+      } else {
+        c = '#4f9a3c';                                   // grass
+        const g = game.ground[y][x];
+        if (g === 'water') c = game.waterType[k] === 'river' ? '#3f8fd0' : '#2f74c0';
+        else if (g === 'path') c = '#c2a06a';
+        if (game.cliff.has(k)) c = '#8a7a5c';
+        if (game.bridges.has(k) || game.fords.has(k)) c = '#b98a4a';
+        if (game.tilled.has(k)) c = '#7a5128';
+      }
       miniCtx.fillStyle = c;
       miniCtx.fillRect(x * sx, y * sy, Math.ceil(sx), Math.ceil(sy));
     }
   }
-  // landmarks
-  const dot = (x, y, col, r = 2) => { miniCtx.fillStyle = col; miniCtx.beginPath();
-    miniCtx.arc((x + 0.5) * sx, (y + 0.5) * sy, r, 0, 7); miniCtx.fill(); };
+  // landmarks (only once discovered)
+  const dot = (x, y, col, r = 2) => {
+    if (!game.explored.has(keyName(x, y))) return;
+    miniCtx.fillStyle = col; miniCtx.beginPath();
+    miniCtx.arc((x + 0.5) * sx, (y + 0.5) * sy, r, 0, 7); miniCtx.fill();
+  };
   game.objects.forEach(o => {
     if (o.type === 'home') dot(o.x + 1, o.y + 1, '#ffcf5a', 2.5);
     else if (o.type === 'shop') dot(o.x, o.y, '#ff8f3a');
@@ -1711,6 +2338,112 @@ function renderBuildMenu() {
   if (upBtn) { upBtn.style.display = ''; upBtn.disabled = !canAfford(next.cost); }
 }
 
+// ---- hire / manage workers menu ----
+function openHireMenu() {
+  const p = document.getElementById('hireMenu'); if (!p) return;
+  game.hireMenuOpen = true; game.paused = true; renderHireMenu(); p.style.display = 'flex';
+}
+function closeHireMenu() {
+  const p = document.getElementById('hireMenu'); if (!p) return;
+  game.hireMenuOpen = false; game.paused = false; p.style.display = 'none';
+}
+function renderHireMenu() {
+  const body = document.getElementById('hmBody'); if (!body) return;
+  const lv = farmLevel();
+  let html = '<p class="hmlv">Farm Level <b>' + lv + '</b> &middot; <span class="coinc">' + game.gold.toLocaleString() + ' coins</span></p>';
+  // current staff
+  html += '<h3>Your workers</h3>';
+  if (!game.employees.length) html += '<p class="dim">None yet. Hire someone below.</p>';
+  game.employees.forEach(e => {
+    const maxed = e.level >= e.cap;
+    const cost = empUpgradeCost(e);
+    html += '<div class="hmrow"><span>' + ROLE_INFO[e.role].name + ' (' + e.tier + ') &middot; Lv ' + e.level + '/' + e.cap + '</span>'
+      + '<span class="hmbtns">'
+      + '<button data-up="' + e.id + '"' + (maxed ? ' disabled title="maxed for this tier"' : '') + '>' + (maxed ? 'Max' : 'Train ' + cost) + '</button>'
+      + '<button class="danger" data-dis="' + e.id + '">Dismiss</button>'
+      + '</span></div>';
+  });
+  // candidates
+  html += '<h3>Available from the towns</h3>';
+  HIRE_POOL.forEach((c, i) => {
+    const locked = lv < c.minFarmLv;
+    html += '<div class="hmrow' + (locked ? ' locked' : '') + '"><span>' + c.tier + ' — ' + ROLE_INFO[c.role].desc
+      + ' <span class="dim">(max Lv ' + c.cap + ')</span></span>'
+      + '<span class="hmbtns">'
+      + (locked ? '<span class="dim">Farm Lv ' + c.minFarmLv + '</span>'
+                : '<button data-hire="' + i + '">Hire &middot; ' + c.hire + ' ' + CUR_NAME[c.cur] + '</button>')
+      + '</span></div>';
+  });
+  body.innerHTML = html;
+  body.querySelectorAll('[data-hire]').forEach(b => b.addEventListener('click', () => { if (hireCandidate(+b.dataset.hire)) renderHireMenu(); }));
+  body.querySelectorAll('[data-up]').forEach(b => b.addEventListener('click', () => { if (upgradeEmployee(+b.dataset.up)) renderHireMenu(); }));
+  body.querySelectorAll('[data-dis]').forEach(b => b.addEventListener('click', () => { dismissEmployee(+b.dataset.dis); renderHireMenu(); }));
+}
+
+// ---- mail-order catalogue menu ----
+function openCatalogue() {
+  const p = document.getElementById('catMenu'); if (!p) return;
+  game.catalogueOpen = true; game.paused = true; renderCatalogue(); p.style.display = 'flex';
+}
+function closeCatalogue() {
+  const p = document.getElementById('catMenu'); if (!p) return;
+  game.catalogueOpen = false; game.paused = false; p.style.display = 'none';
+}
+function renderCatalogue() {
+  const body = document.getElementById('catBody'); if (!body) return;
+  const pend = game.pendingOrders.reduce((n, o) => n + o.qty, 0);
+  let html = '<p class="hmlv">Coins: <b class="coinc">' + game.gold.toLocaleString() + '</b>'
+    + ' &middot; next post in <b>' + daysUntilPost() + '</b> day(s)</p>';
+  html += '<p class="dim">Order now — the postman delivers to your tent on the next Wednesday.</p>';
+  CATALOGUE.forEach((it, i) => {
+    const afford = game.gold >= it.price;
+    html += '<div class="hmrow"><span>' + it.name + ' <span class="dim">' + it.price + ' coins</span></span>'
+      + '<span class="hmbtns"><button data-order="' + i + '"' + (afford ? '' : ' disabled') + '>Order</button></span></div>';
+  });
+  if (pend) {
+    html += '<h3>On its way</h3>';
+    html += game.pendingOrders.map(o => '<div class="hmrow"><span>' + o.name + ' &times; ' + o.qty + '</span></div>').join('');
+  }
+  body.innerHTML = html;
+  body.querySelectorAll('[data-order]').forEach(b => b.addEventListener('click', () => { if (orderItem(+b.dataset.order)) renderCatalogue(); }));
+}
+
+// ---- crafting menu ----
+function openCraftMenu() {
+  const p = document.getElementById('craftMenu'); if (!p) return;
+  game.craftMenuOpen = true; game.paused = true; renderCraftMenu(); p.style.display = 'flex';
+}
+function closeCraftMenu() {
+  const p = document.getElementById('craftMenu'); if (!p) return;
+  game.craftMenuOpen = false; game.paused = false; p.style.display = 'none';
+}
+function renderCraftMenu() {
+  const body = document.getElementById('crBody'); if (!body) return;
+  const matName = { wood: 'Wood', stone: 'Stone', coins: 'Coins' };
+  let html = '<p class="hmlv">Wood: <b>' + (game.bag.wood || 0) + '</b> &middot; Stone: <b>' + (game.bag.stone || 0) + '</b> &middot; Coins: <b class="coinc">' + game.gold.toLocaleString() + '</b></p>';
+  ['carpentry', 'toolsmithing'].forEach(area => {
+    const learned = skillLearned(area);
+    html += '<h3>' + area.charAt(0).toUpperCase() + area.slice(1)
+      + (learned ? ' <span class="dim">(self-taught — no fee)</span>' : ' <span class="dim">(crafter does it for a fee)</span>') + '</h3>';
+    const recs = CRAFT_RECIPES.filter(r => r.area === area);
+    recs.forEach(r => {
+      const matStr = Object.entries(r.mats).map(([k, v]) => v + ' ' + (matName[k] || k)).join(', ');
+      const fee = recipeFee(r);
+      const lvl = r.tool ? ' <span class="dim">(Lv ' + (game.toolLevel[r.tool] || 1) + '/' + TOOL_MAX + ')</span>' : '';
+      let right;
+      if (!recipeAvailable(r)) {
+        right = '<span class="dim">' + (r.needsShed && !game.shedBuilt ? 'needs Shed' : (r.tool ? 'maxed' : 'done')) + '</span>';
+      } else {
+        right = '<button data-craft="' + r.id + '"' + (canCraft(r) ? '' : ' disabled') + '>Craft</button>';
+      }
+      html += '<div class="hmrow"><span>' + r.name + lvl + '<br><span class="dim">' + matStr + (fee ? ' + ' + fee + ' coins fee' : '') + '</span></span>'
+        + '<span class="hmbtns">' + right + '</span></div>';
+    });
+  });
+  body.innerHTML = html;
+  body.querySelectorAll('[data-craft]').forEach(b => b.addEventListener('click', () => { if (craftRecipe(b.dataset.craft)) renderCraftMenu(); }));
+}
+
 // ---- pause / options menu ----
 function togglePauseMenu() {
   if (!game.started) return;                 // ignore before the game has started
@@ -1737,6 +2470,26 @@ function resetSave() {
   try { localStorage.removeItem('harvest_hollow_save'); } catch (e) {}
   location.reload();
 }
+// fetch the latest version (refresh the service worker cache) WITHOUT wiping the save
+function updateGame() {
+  saveGame();                       // keep all current progress (lives in localStorage)
+  toast('Updating to the latest version — your save is kept...', 4);
+  try {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistration) {
+      navigator.serviceWorker.getRegistration().then(reg => {
+        if (!reg) { location.reload(); return; }
+        let done = false;
+        const go = () => { if (!done) { done = true; location.reload(); } };
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          if (nw) nw.addEventListener('statechange', () => { if (nw.state === 'installed' || nw.state === 'activated') go(); });
+        });
+        reg.update().catch(() => {});
+        setTimeout(go, 2000);       // fallback if already up to date / no SW change
+      }).catch(() => location.reload());
+    } else location.reload();
+  } catch (e) { location.reload(); }
+}
 function bindPauseMenu() {
   const on = (id, fn) => { const el = document.getElementById(id); if (el) { el.addEventListener('click', fn); } };
   on('pauseBtn', togglePauseMenu);
@@ -1744,6 +2497,7 @@ function bindPauseMenu() {
   on('pmOptionsBtn', () => { const o = document.getElementById('pmOptions'); if (o) o.style.display = (o.style.display === 'none' ? 'block' : 'none'); });
   on('pmMinimap', () => document.body.classList.toggle('hidemap'));
   on('pmFullscreen', toggleFullscreen);
+  on('pmUpdate', updateGame);
   on('pmSave', () => { saveGame(); toast('Game saved.'); closePauseMenu(); });
   on('pmReset', () => { if (window.confirm('Start over? This erases your saved game.')) resetSave(); });
 }
@@ -1798,6 +2552,12 @@ function bindBuildMenu() {
   const up = document.getElementById('bmUpgrade'), cl = document.getElementById('bmClose');
   if (up) up.addEventListener('click', () => { if (upgradeHome()) renderBuildMenu(); });
   if (cl) cl.addEventListener('click', closeBuildMenu);
+  const hc = document.getElementById('hmClose');
+  if (hc) hc.addEventListener('click', closeHireMenu);
+  const cc = document.getElementById('catClose');
+  if (cc) cc.addEventListener('click', closeCatalogue);
+  const rc = document.getElementById('crClose');
+  if (rc) rc.addEventListener('click', closeCraftMenu);
 }
 
 async function boot() {
@@ -1820,7 +2580,12 @@ if (typeof module !== 'undefined' && module.exports) {
                      fenceMask, FENCE_TILES, startFishing, catchFish, tryInteract,
                      POND_FISH, RIVER_FISH, keyName,
                      HOME_TIERS, upgradeHome, canAfford, homeObj,
-                     plantSapling, SAPLING_DAYS };
+                     plantSapling, SAPLING_DAYS,
+                     farmLevel, HIRE_POOL, hireCandidate, upgradeEmployee, dismissEmployee,
+                     applyEmployees, empUpgradeCost, TS, SCALE, markExplored, updateFishLeaps,
+                     CATALOGUE, orderItem, deliverPost, collectMail, isPostDay, daysUntilPost,
+                     CRAFT_RECIPES, craftRecipe, canCraft, skillLearned, recipeFee, recipeAvailable,
+                     toolPower, TOOL_MAX, LEARN_THRESHOLD };
 }
 
 boot();

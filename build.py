@@ -129,6 +129,58 @@ html = """<!DOCTYPE html>
   #buildMenu button:disabled { opacity: .5; cursor: not-allowed; }
   #buildMenu button:active:not(:disabled) { transform: scale(.96); }
 
+  /* ---- farm level chip ---- */
+  #farmChip { padding: 4px 14px 5px; }
+  #farmLv { font-size: 15px; color: #4a2c12; }
+
+  /* ---- hire / manage workers menu ---- */
+  #hireMenu { display: none; position: absolute; inset: 0; z-index: 30;
+    background: rgba(20,16,30,.55); align-items: center; justify-content: center; }
+  #hireMenu .panel { width: min(470px, 92vw); max-height: 84vh; overflow-y: auto; padding: 16px 18px; }
+  #hireMenu h2 { margin: 0 0 4px; color: #4a2c12; text-shadow: 0 1px 0 #f3d8a8; }
+  #hireMenu h3 { margin: 12px 0 4px; color: #5a3517; font-size: 15px; border-bottom: 1px solid #8a5a2b55; padding-bottom: 2px; }
+  #hireMenu .hmrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 5px 0; font-size: 13px; color: #3a2a16; }
+  #hireMenu .hmrow.locked { opacity: .55; }
+  #hireMenu .hmbtns { display: flex; gap: 6px; flex-shrink: 0; }
+  #hireMenu button { font-family: inherit; font-weight: bold; font-size: 13px; padding: 6px 10px; border-radius: 7px;
+    border: 2px solid #6b3f1d; color: #4a2c12; background: linear-gradient(#f0d3a0, #d2a262); cursor: pointer; white-space: nowrap; }
+  #hireMenu button:disabled { opacity: .5; cursor: not-allowed; }
+  #hireMenu button:active:not(:disabled) { transform: scale(.96); }
+  #hireMenu button.danger { background: linear-gradient(#e8a08a, #cc6a52); }
+  #hireMenu .dim { color: #7a6a52; }
+  #hireMenu .hmlv { font-size: 13px; color: #4a2c12; margin: 0 0 4px; } #hireMenu .coinc { color: #6b3f12; font-weight: bold; }
+  #hireMenu .close { display: block; margin: 14px auto 0; }
+
+  /* ---- mail-order catalogue (shares the hireMenu look) ---- */
+  #catMenu { display: none; position: absolute; inset: 0; z-index: 30;
+    background: rgba(20,16,30,.55); align-items: center; justify-content: center; }
+  #catMenu .panel { width: min(440px, 92vw); max-height: 84vh; overflow-y: auto; padding: 16px 18px; }
+  #catMenu h2 { margin: 0 0 4px; color: #4a2c12; text-shadow: 0 1px 0 #f3d8a8; }
+  #catMenu h3 { margin: 12px 0 4px; color: #5a3517; font-size: 15px; border-bottom: 1px solid #8a5a2b55; padding-bottom: 2px; }
+  #catMenu .hmrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 5px 0; font-size: 13px; color: #3a2a16; }
+  #catMenu .hmbtns button { font-family: inherit; font-weight: bold; font-size: 13px; padding: 6px 12px; border-radius: 7px;
+    border: 2px solid #6b3f1d; color: #4a2c12; background: linear-gradient(#f0d3a0, #d2a262); cursor: pointer; }
+  #catMenu .hmbtns button:disabled { opacity: .5; cursor: not-allowed; }
+  #catMenu .hmlv { font-size: 13px; color: #4a2c12; margin: 0 0 4px; } #catMenu .coinc { color: #6b3f12; }
+  #catMenu .dim { color: #7a6a52; }
+  #catMenu .close { display: block; margin: 14px auto 0; font-family: inherit; font-weight: bold; font-size: 14px;
+    padding: 8px 16px; border-radius: 8px; border: 2px solid #6b3f1d; color: #4a2c12; background: linear-gradient(#f0d3a0, #d2a262); cursor: pointer; }
+
+  /* ---- crafting menu (shares the menu look) ---- */
+  #craftMenu { display: none; position: absolute; inset: 0; z-index: 30;
+    background: rgba(20,16,30,.55); align-items: center; justify-content: center; }
+  #craftMenu .panel { width: min(460px, 92vw); max-height: 84vh; overflow-y: auto; padding: 16px 18px; }
+  #craftMenu h2 { margin: 0 0 4px; color: #4a2c12; text-shadow: 0 1px 0 #f3d8a8; }
+  #craftMenu h3 { margin: 12px 0 4px; color: #5a3517; font-size: 15px; border-bottom: 1px solid #8a5a2b55; padding-bottom: 2px; }
+  #craftMenu .hmrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; color: #3a2a16; }
+  #craftMenu .hmbtns button { font-family: inherit; font-weight: bold; font-size: 13px; padding: 6px 12px; border-radius: 7px;
+    border: 2px solid #6b3f1d; color: #4a2c12; background: linear-gradient(#f0d3a0, #d2a262); cursor: pointer; }
+  #craftMenu .hmbtns button:disabled { opacity: .5; cursor: not-allowed; }
+  #craftMenu .hmlv { font-size: 13px; color: #4a2c12; margin: 0 0 4px; } #craftMenu .coinc { color: #6b3f12; }
+  #craftMenu .dim { color: #7a6a52; }
+  #craftMenu .close { display: block; margin: 14px auto 0; font-family: inherit; font-weight: bold; font-size: 14px;
+    padding: 8px 16px; border-radius: 8px; border: 2px solid #6b3f1d; color: #4a2c12; background: linear-gradient(#f0d3a0, #d2a262); cursor: pointer; }
+
   /* ---- right-edge vertical energy/health bars ---- */
   #bars { position: absolute; right: 16px; bottom: 96px; display: flex; gap: 8px; align-items: flex-end;
     pointer-events: none; }
@@ -254,6 +306,7 @@ html = """<!DOCTYPE html>
       <div class="cur"><span class="gem pearl"></span><span id="pearls" class="emboss">0</span></div>
       <div class="cur"><span class="gem emerald"></span><span id="emeralds" class="emboss">0</span></div>
     </div>
+    <div id="farmChip" class="wood"><span id="farmLv" class="emboss">Farm Lv 1</span></div>
   </div>
 
   <div id="mapBox" class="wood">
@@ -267,6 +320,30 @@ html = """<!DOCTYPE html>
     <div class="btns">
       <button id="bmUpgrade">Upgrade</button>
       <button id="bmClose">Close</button>
+    </div>
+  </div>
+
+  <div id="hireMenu">
+    <div class="panel wood">
+      <h2>Town Job Board</h2>
+      <div id="hmBody"></div>
+      <button id="hmClose" class="close">Close</button>
+    </div>
+  </div>
+
+  <div id="catMenu">
+    <div class="panel wood">
+      <h2>Mail-Order Catalogue</h2>
+      <div id="catBody"></div>
+      <button id="catClose" class="close">Close</button>
+    </div>
+  </div>
+
+  <div id="craftMenu">
+    <div class="panel wood">
+      <h2>Workbench</h2>
+      <div id="crBody"></div>
+      <button id="crClose" class="close">Close</button>
     </div>
   </div>
 
@@ -288,7 +365,7 @@ html = """<!DOCTYPE html>
   </div>
 
   <div id="touchUI">
-    <div id="btnB" class="tbtn wood emboss">Buy</div>
+    <div id="btnB" class="tbtn wood emboss">Order</div>
     <div id="btnA" class="tbtn wood emboss">Use</div>
   </div>
 
@@ -306,6 +383,7 @@ html = """<!DOCTYPE html>
       <div id="pmOptions">
         <button id="pmMinimap">Toggle Minimap</button>
         <button id="pmFullscreen">Toggle Fullscreen</button>
+        <button id="pmUpdate">Update Game (keep save)</button>
         <button id="pmReset">Start Over (erase save)</button>
       </div>
     </div>
