@@ -1060,18 +1060,36 @@ function objSortY(o) {
 
 // ground tile drawing — single-tile source art + deterministic procedural detail
 function drawGround(type, x, y, dx, dy) {
-  let img = IMG.grass;
-  if (type === 'water') img = IMG.water;
-  else if (type === 'path') img = IMG.path;
-  if (img && img.complete && img.width) {
-    ctx.drawImage(img, 0, 0, Math.min(16, img.width), Math.min(16, img.height), dx, dy, TS, TS);
-  } else {
-    ctx.fillStyle = type === 'water' ? '#3aa9e0' : type === 'path' ? '#caa472' : '#6cbf4b';
-    ctx.fillRect(dx, dy, TS, TS);
+  if (type === 'path') {
+    // grass underneath, then the path on top, then feather the edges that meet grass
+    if (ready(IMG.grass)) ctx.drawImage(IMG.grass, 0, 0, 16, 16, dx, dy, TS, TS);
+    else { ctx.fillStyle = '#6cbf4b'; ctx.fillRect(dx, dy, TS, TS); }
+    if (ready(IMG.path)) ctx.drawImage(IMG.path, 0, 0, 16, 16, dx, dy, TS, TS);
+    else { ctx.fillStyle = '#caa472'; ctx.fillRect(dx, dy, TS, TS); }
+    textureDirt(x, y, dx, dy, ['#b7895180', '#9c6f3c80', '#caa06a80']);
+    featherPath(x, y, dx, dy);
+    return;
   }
+  let img = (type === 'water') ? IMG.water : IMG.grass;
+  if (ready(img)) ctx.drawImage(img, 0, 0, 16, 16, dx, dy, TS, TS);
+  else { ctx.fillStyle = type === 'water' ? '#3aa9e0' : '#6cbf4b'; ctx.fillRect(dx, dy, TS, TS); }
   if (type === 'grass') textureGrass(x, y, dx, dy);
-  else if (type === 'path') textureDirt(x, y, dx, dy, ['#b7895180', '#9c6f3c80', '#caa06a80']);
   else if (type === 'water') textureWater(x, y, dx, dy);
+}
+
+// soften the path/grass boundary: scatter grass tufts over the path edge wherever
+// the neighbouring tile is grass, so paths look worn-in rather than tile-stamped.
+function featherPath(x, y, dx, dy) {
+  const isPath = (nx, ny) => { const g = game.ground[ny] && game.ground[ny][nx]; return g === 'path'; };
+  const greens = ['#4f9a37', '#5aa84b', '#3f7f2c'];
+  const tuft = (px, py, s) => {
+    ctx.fillStyle = greens[Math.floor(tileRand(x, y, s) * greens.length)];
+    ctx.beginPath(); ctx.arc(px, py, 1.8 + tileRand(x, y, s + 1) * 1.4, 0, 7); ctx.fill();
+  };
+  if (!isPath(x, y - 1)) for (let i = 0; i < 5; i++) tuft(dx + 3 + tileRand(x, y, i + 60) * (TS - 6), dy + 1 + tileRand(x, y, i + 61) * 5, i + 62);
+  if (!isPath(x, y + 1)) for (let i = 0; i < 5; i++) tuft(dx + 3 + tileRand(x, y, i + 70) * (TS - 6), dy + TS - 1 - tileRand(x, y, i + 71) * 5, i + 72);
+  if (!isPath(x - 1, y)) for (let i = 0; i < 5; i++) tuft(dx + 1 + tileRand(x, y, i + 80) * 5, dy + 3 + tileRand(x, y, i + 81) * (TS - 6), i + 82);
+  if (!isPath(x + 1, y)) for (let i = 0; i < 5; i++) tuft(dx + TS - 1 - tileRand(x, y, i + 90) * 5, dy + 3 + tileRand(x, y, i + 91) * (TS - 6), i + 92);
 }
 
 // distinguish rivers (downward flow streaks) from ponds (gentle drifting sparkles)
