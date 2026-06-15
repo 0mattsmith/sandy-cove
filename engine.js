@@ -67,6 +67,8 @@ const HOME_TIERS = [
   { name: 'Ranch',         w: 8, h: 8, cost: { coins: 15000, wood: 600, stone: 400, pearls: 40, emeralds: 10 } },
 ];
 
+const SAPLING_DAYS = 4;   // days for a planted sapling to grow into a choppable tree
+
 // Fish split by water type — pond fish vs river fish.
 const POND_FISH = [
   { name: 'Carp', sell: 30 }, { name: 'Bluegill', sell: 45 },
@@ -89,7 +91,7 @@ const SELLABLE = {
 const TOOLS = ['hoe', 'wateringcan', 'axe', 'pickaxe', 'scythe', 'sword', 'fishingrod'];
 const TOOL_LABEL = {
   hoe: 'Hoe', wateringcan: 'Can', axe: 'Axe', pickaxe: 'Pick',
-  scythe: 'Scythe', sword: 'Sword', fishingrod: 'Rod',
+  scythe: 'Scythe', sword: 'Sword', fishingrod: 'Rod', sapling: 'Sapling',
   seed_parsnip: 'Parsnip Sd', seed_potato: 'Potato Sd',
   seed_carrot: 'Carrot Sd', seed_pumpkin: 'Pumpkin Sd',
 };
@@ -132,7 +134,7 @@ const game = {
   minutes: DAY_START, day: 1, season: 'Spring',
   minAccum: 0,
   // inventory
-  hotbar: ['hoe', 'wateringcan', 'axe', 'pickaxe', 'scythe', 'sword', 'fishingrod', 'seed_parsnip', 'seed_carrot'],
+  hotbar: ['hoe', 'wateringcan', 'axe', 'pickaxe', 'scythe', 'sword', 'fishingrod', 'seed_parsnip', 'seed_carrot', 'sapling'],
   selected: 0,
   bag: {},                     // item -> count (produce/resources)
   chest: {},                   // stored items
@@ -272,13 +274,30 @@ function genWorld() {
     if (!reserved(x, y) && !occupied(x, y)) addObject('rock', x, y, { hp: 3 });
   }
 
-  // homestead: your upgradeable home (starts as a Basic Shelter), bed, storage, shop, sign
-  addObject('home', 3, 2, { tier: 0 });
-  addObject('bed', 11, 8, {});
-  addObject('chest', 13, 9, {});
-  addObject('bin', 14, 9, {});
-  addObject('shop', 18, 11, {});
-  addObject('sign', 10, 10, { text: 'Harvest Hollow' });
+  // homestead beside the path: your upgradeable home (a Basic Shelter to start),
+  // with its own usable bed + chest. A short branch path leads up from the main path.
+  const home = { type: 'home', x: 12, y: 12, tier: 0 };
+  setHomeFixtures(home);
+  game.objects.push(home);
+  for (let x = 15; x < 20; x++) if (game.ground[13][x] === 'grass') game.ground[13][x] = 'path';
+  addObject('sign', 15, 11, { text: 'Harvest Hollow' });
+  addObject('bin', 23, 14, {});
+  addObject('shop', 25, 14, {});
+
+  // roads leading out of Harvest Hollow — some signed to far-off places, some unknown.
+  // (They run to the map edge for now; where they truly lead is for later chapters.)
+  const road = [];
+  for (let y = 24; y < MAP_H; y++) road.push([20, y]);   // south road -> the coast
+  for (let x = 0; x < 8; x++) road.push([x, 10]);        // west road  -> a village
+  for (let y = 0; y < 8; y++) road.push([20, y]);        // north trail -> the forest (unknown)
+  road.forEach(([x, y]) => {
+    if (game.ground[y] && game.ground[y][x] === 'grass' && !game.cliff.has(keyName(x, y)))
+      game.ground[y][x] = 'path';
+    game.objects = game.objects.filter(o => !((o.type === 'tree' || o.type === 'rock') && o.x === x && o.y === y));
+  });
+  addObject('signpost', 22, 26, { text: 'Tidewater Coast', known: true });
+  addObject('signpost', 6, 8,   { text: 'Mossy Village', known: true });
+  addObject('signpost', 22, 6,  { text: 'The Old Forest', known: false });
 
   // the mystery: an old carved relic in the grotto behind the waterfall
   addObject('relic', 38, 1, {});
@@ -320,6 +339,24 @@ function occupied(x, y) {
   return game.objects.some(o => o.x === x && o.y === y);
 }
 
+// place the home's usable bed + chest, and decide whether the structure blocks movement.
+// Open tiers (shelter/tents) are walkable with fixtures inside; solid tiers (homes) put
+// the bed + chest on a walkable porch in front so they stay reachable.
+function setHomeFixtures(h) {
+  const t = HOME_TIERS[h.tier];
+  if (h.tier <= 2) {
+    const fy = h.y + t.h - 1;            // front row
+    h.bed = { x: h.x, y: fy };
+    h.chest = { x: h.x + t.w - 1, y: fy };
+    h.solidFootprint = false;
+  } else {
+    const py = h.y + t.h;                // porch row, just below the building
+    h.bed = { x: h.x, y: py };
+    h.chest = { x: h.x + t.w - 1, y: py };
+    h.solidFootprint = true;
+  }
+}
+
 function rebuildSolids() {
   game.solid = new Set();
   game.fenceSet = new Set();
@@ -334,11 +371,16 @@ function rebuildSolids() {
   game.cliff.forEach(k => game.solid.add(k));
   // objects
   game.objects.forEach(o => {
-    if (o.type === 'house' || o.type === 'home') {
-      const fw = o.type === 'home' ? HOME_TIERS[o.tier].w : o.w;
-      const fh = o.type === 'home' ? HOME_TIERS[o.tier].h : o.h;
-      for (let yy = 0; yy < fh; yy++)
-        for (let xx = 0; xx < fw; xx++) game.solid.add(keyName(o.x + xx, o.y + yy));
+    if (o.type === 'house') {
+      for (let yy = 0; yy < o.h; yy++)
+        for (let xx = 0; xx < o.w; xx++) game.solid.add(keyName(o.x + xx, o.y + yy));
+    } else if (o.type === 'home') {
+      // open shelter/tents are walkable; only solid building tiers block movement
+      if (o.solidFootprint) {
+        const t = HOME_TIERS[o.tier];
+        for (let yy = 0; yy < t.h; yy++)
+          for (let xx = 0; xx < t.w; xx++) game.solid.add(keyName(o.x + xx, o.y + yy));
+      }
     } else if (o.type === 'tree' || o.type === 'rock' || o.type === 'fence' ||
                o.type === 'chest' || o.type === 'bin' || o.type === 'shop') {
       game.solid.add(keyName(o.x, o.y));
@@ -478,6 +520,8 @@ function doAction() {
 
   if (item === 'fishingrod') {
     startFishing(tx, ty);
+  } else if (item === 'sapling') {
+    plantSapling(tx, ty);
   } else if (item === 'hoe') {
     if (canTill(tx, ty)) { game.tilled.add(keyName(tx, ty)); spendEnergy(2); }
   } else if (item === 'wateringcan') {
@@ -514,6 +558,19 @@ function plantSeed(type, tx, ty) {
   spendEnergy(1);
 }
 
+function plantSapling(tx, ty) {
+  if ((game.bag.sapling || 0) <= 0) { toast('No saplings. Chop trees to find some.'); return; }
+  const k = keyName(tx, ty);
+  const g = game.ground[ty] && game.ground[ty][tx];
+  if (g !== 'grass' || game.solid.has(k) || game.tilled.has(k) || game.crops[k] || occupied(tx, ty)) {
+    toast('Plant a sapling on open grass.'); return;
+  }
+  game.bag.sapling -= 1;
+  addObject('sapling', tx, ty, { growth: 0 });
+  spendEnergy(1);
+  toast('Sapling planted — it will grow over a few days.');
+}
+
 // ---- fishing ----
 function startFishing(tx, ty) {
   const type = game.waterType[keyName(tx, ty)];   // 'pond' | 'river' | undefined
@@ -544,9 +601,11 @@ function hitObject(kind, tx, ty, drop, amount) {
     addBag(drop, amount);
     game.objects = game.objects.filter(x => x !== o);
     rebuildSolids();
-    // Emeralds are mined — a chance to strike one when breaking a rock
-    if (kind === 'rock' && Math.random() < 0.18) { game.emeralds += 1; toast('+' + amount + ' ' + drop + ' — and an Emerald!', 4); }
-    else toast('+' + amount + ' ' + drop);
+    let extra = '';
+    // Emeralds are mined from rocks; felled trees sometimes drop a replantable sapling
+    if (kind === 'rock' && Math.random() < 0.18) { game.emeralds += 1; extra = ' — and an Emerald!'; }
+    if (kind === 'tree' && Math.random() < 0.45) { addBag('sapling', 1); extra = ' — and a Sapling!'; }
+    toast('+' + amount + ' ' + drop + extra, extra ? 4 : 2.4);
   }
 }
 
@@ -586,24 +645,30 @@ function swingSword() {
   spendEnergy(1);
 }
 
+function storeInChest() {
+  let moved = 0;
+  for (const it in game.bag) { game.chest[it] = (game.chest[it] || 0) + game.bag[it]; moved += game.bag[it]; }
+  game.bag = {};
+  toast(moved ? 'Stored ' + moved + ' items in your chest.' : 'Your chest — keep your harvest safe here.');
+}
+
 function tryInteract(tx, ty) {
-  // the home occupies several tiles — match any of its footprint
+  // the home: its bed and chest are usable; the rest opens the build/upgrade menu
   const home = game.objects.find(h => h.type === 'home');
   if (home) {
+    if (home.bed && tx === home.bed.x && ty === home.bed.y) { startSleep(); return true; }
+    if (home.chest && tx === home.chest.x && ty === home.chest.y) { storeInChest(); return true; }
     const t = HOME_TIERS[home.tier];
     if (tx >= home.x && tx < home.x + t.w && ty >= home.y && ty < home.y + t.h) {
       openBuildMenu(); return true;
     }
   }
   const o = game.objects.find(o => o.x === tx && o.y === ty);
-  // bed -> sleep
-  if (o && o.type === 'bed') { startSleep(); return true; }
-  // chest -> deposit all produce/resources
-  if (o && o.type === 'chest') {
-    let moved = 0;
-    for (const it in game.bag) { game.chest[it] = (game.chest[it] || 0) + game.bag[it]; moved += game.bag[it]; }
-    game.bag = {};
-    toast(moved ? 'Stored ' + moved + ' items in chest.' : 'Chest is your storage.');
+  // signpost -> read it
+  if (o && o.type === 'signpost') {
+    toast(o.known
+      ? o.text + ' lies that way — a long road from Harvest Hollow. (You can\'t travel there yet.)'
+      : 'A weathered signpost, its lettering worn away. The trail winds off into the unknown...', 6);
     return true;
   }
   // shipping bin -> sell all sellable items
@@ -684,6 +749,7 @@ function upgradeHome() {
   if (!canAfford(next.cost)) { toast('Not enough materials for the ' + next.name + '.'); return false; }
   payCost(next.cost);
   h.tier += 1;
+  setHomeFixtures(h);
   rebuildSolids();
   toast('Home upgraded to ' + next.name + '!', 5);
   if (next.name === 'Ranch') toast('The Ranch is complete. Something stirs toward Sandy Cove...', 9);
@@ -715,6 +781,15 @@ function advanceDay() {
     c.wateredToday = false;
   }
   game.watered = new Set();
+  // grow planted saplings; mature ones become choppable trees
+  let grewTree = false;
+  game.objects.forEach(o => {
+    if (o.type === 'sapling') {
+      o.growth = (o.growth || 0) + 1;
+      if (o.growth >= SAPLING_DAYS) { o.type = 'tree'; o.hp = 4; delete o.growth; grewTree = true; }
+    }
+  });
+  if (grewTree) rebuildSolids();
   // animals produce again
   game.animals.forEach(a => { a.produce = true; });
   // respawn a slime occasionally
@@ -1173,6 +1248,18 @@ function drawObject(o, cx, cy) {
       if (ready(IMG.decor)) ctx.drawImage(IMG.decor, 0, 48, 16, 16, dx + sh, dy, TS, TS);
       else fallbackBox(dx, dy, '#888');
       break;
+    case 'sapling': {
+      // a young tree that grows over a few days into a choppable oak
+      const f = Math.min(1, (o.growth || 0) / SAPLING_DAYS);
+      const cxp = dx + TS / 2, baseY = dy + TS - 3, h = 7 + f * 22;
+      ctx.strokeStyle = '#7a5230'; ctx.lineWidth = 2 + f * 2;
+      ctx.beginPath(); ctx.moveTo(cxp, baseY); ctx.lineTo(cxp, baseY - h); ctx.stroke();
+      ctx.fillStyle = '#5aa84b';
+      ctx.beginPath(); ctx.arc(cxp, baseY - h, 5 + f * 9, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.beginPath(); ctx.arc(cxp - 2, baseY - h - 2, 3 + f * 4, 0, 7); ctx.fill();
+      break;
+    }
     case 'house':
       if (ready(IMG.house)) ctx.drawImage(IMG.house, dx, dy, IMG.house.width * SCALE, IMG.house.height * SCALE);
       else fallbackBox(dx, dy, '#7a4', o.w * TS, o.h * TS);
@@ -1207,6 +1294,15 @@ function drawObject(o, cx, cy) {
       ctx.fillStyle = '#caa05a'; ctx.strokeStyle = '#6b3f1d'; ctx.lineWidth = 2;
       ctx.fillRect(dx - 6, dy - 6, TS + 12, 16); ctx.strokeRect(dx - 6, dy - 6, TS + 12, 16);
       label(dx + TS / 2, dy + 6, 'HARVEST HOLLOW'); break;
+    case 'signpost': {
+      // a post with a pointing board — bright if known, weathered grey if not
+      ctx.fillStyle = '#6b4226'; ctx.fillRect(dx + TS / 2 - 3, dy - 4, 6, TS + 4);
+      ctx.fillStyle = o.known ? '#caa05a' : '#9a948a';
+      ctx.strokeStyle = '#5a3f24'; ctx.lineWidth = 2;
+      ctx.fillRect(dx - 10, dy - 18, TS + 20, 16); ctx.strokeRect(dx - 10, dy - 18, TS + 20, 16);
+      label(dx + TS / 2, dy - 22, o.known ? o.text.toUpperCase() : '???');
+      break;
+    }
     case 'relic': {
       // a mysterious carved standing stone that pulses faintly
       const pulse = 0.5 + 0.5 * Math.sin(game.anim * 2);
@@ -1227,45 +1323,73 @@ function drawObject(o, cx, cy) {
 function drawHome(o, dx, dy) {
   const tier = o.tier, t = HOME_TIERS[tier];
   const W = t.w * TS, H = t.h * TS;
-  const groundY = dy + H;                       // base sits on its footprint
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';           // soft shadow
+  const groundY = dy + H;
+  ctx.fillStyle = 'rgba(0,0,0,0.16)';
   ctx.fillRect(dx + 4, groundY - 6, W - 8, 6);
-  if (tier === 0) {                             // Basic Shelter: lean-to + bedroll
-    ctx.fillStyle = '#7a5a36'; ctx.fillRect(dx + 6, groundY - 10, W - 12, 10);   // bedroll
-    ctx.fillStyle = '#caa05a'; ctx.fillRect(dx + 6, groundY - 10, W - 12, 4);
-    ctx.fillStyle = '#6b7b52'; ctx.beginPath();                                   // tarp
-    ctx.moveTo(dx + 2, groundY - 8); ctx.lineTo(dx + W / 2, dy + 4);
-    ctx.lineTo(dx + W - 2, groundY - 8); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = '#4d3a22'; ctx.lineWidth = 2; ctx.stroke();
-  } else if (tier === 1 || tier === 2) {        // Small / Large Tent
-    const col = tier === 1 ? '#c66a4a' : '#3f7a8c', colDk = tier === 1 ? '#9c4a30' : '#2c5a68';
+
+  if (tier === 0) {
+    // Basic Shelter: a worn floor mat, 4 stick posts, and a cloth roof slung overhead.
+    ctx.fillStyle = 'rgba(120,90,55,0.35)'; ctx.fillRect(dx + 4, dy + 8, W - 8, H - 12);
+    const postTop = (bx, by, h, lean) => {                 // a stick rising from the ground
+      ctx.strokeStyle = '#6b4a28'; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + lean, by - h); ctx.stroke();
+      ctx.strokeStyle = '#8a6038'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + lean, by - h); ctx.stroke();
+      return { x: bx + lean, y: by - h };
+    };
+    const bH = TS * 1.5, fH = TS * 1.05;                   // back posts taller than front
+    const blT = postTop(dx + 8, dy + TS - 4, bH, 4);       // back-left
+    const brT = postTop(dx + W - 8, dy + TS - 4, bH, -4);  // back-right
+    const flT = postTop(dx + 8, groundY - 6, fH, 4);       // front-left
+    const frT = postTop(dx + W - 8, groundY - 6, fH, -4);  // front-right
+    // cloth roof sheet across the post tops (floats above the floor, doesn't hide fixtures)
+    ctx.fillStyle = '#9c8a5a';
+    ctx.beginPath(); ctx.moveTo(blT.x, blT.y); ctx.lineTo(brT.x, brT.y);
+    ctx.lineTo(frT.x, frT.y + 4); ctx.lineTo(flT.x, flT.y + 4); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#6b5a36'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 2;   // ridge highlight
+    ctx.beginPath(); ctx.moveTo((blT.x + flT.x) / 2, (blT.y + flT.y) / 2); ctx.lineTo((brT.x + frT.x) / 2, (brT.y + frT.y) / 2); ctx.stroke();
+  } else if (tier === 1 || tier === 2) {
+    const col = tier === 1 ? '#c66a4a' : '#3f7a8c';
     ctx.fillStyle = col; ctx.beginPath();
     ctx.moveTo(dx + 2, groundY); ctx.lineTo(dx + W / 2, dy + 4); ctx.lineTo(dx + W - 2, groundY); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = colDk; ctx.beginPath();      // door flap
-    ctx.moveTo(dx + W / 2, dy + 10); ctx.lineTo(dx + W / 2 - 10, groundY); ctx.lineTo(dx + W / 2 + 10, groundY); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = '#3a2a18'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(dx + 2, groundY); ctx.lineTo(dx + W / 2, dy + 4); ctx.lineTo(dx + W - 2, groundY); ctx.stroke();
-  } else if (tier === 3) {                       // Small Home: little cabin
-    ctx.fillStyle = '#caa46a'; ctx.fillRect(dx + 6, dy + H * 0.42, W - 12, H * 0.58 - 4);   // walls
-    ctx.fillStyle = '#8a5a2b'; ctx.beginPath();                                              // roof
+    ctx.strokeStyle = '#3a2a18'; ctx.lineWidth = 2; ctx.stroke();
+  } else if (tier === 3) {
+    ctx.fillStyle = '#caa46a'; ctx.fillRect(dx + 6, dy + H * 0.42, W - 12, H * 0.58 - 4);
+    ctx.fillStyle = '#8a5a2b'; ctx.beginPath();
     ctx.moveTo(dx + 2, dy + H * 0.46); ctx.lineTo(dx + W / 2, dy + 6); ctx.lineTo(dx + W - 2, dy + H * 0.46); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#5a3a1c'; ctx.fillRect(dx + W / 2 - 9, groundY - 26, 18, 26);           // door
-    ctx.fillStyle = '#8fd0f6'; ctx.fillRect(dx + 12, dy + H * 0.55, 12, 12);                 // window
-  } else {                                       // Town Home (4) and Ranch (5): the house sprite
+    ctx.fillStyle = '#5a3a1c'; ctx.fillRect(dx + W / 2 - 9, groundY - 26, 18, 26);
+    ctx.fillStyle = '#8fd0f6'; ctx.fillRect(dx + 12, dy + H * 0.55, 12, 12);
+  } else {
     if (ready(IMG.house)) {
       const iw = IMG.house.width * SCALE, ih = IMG.house.height * SCALE;
+      ctx.drawImage(IMG.house, dx, dy + H - ih, iw, ih);
       if (tier === 5) {
-        // Ranch: a wider footprint — house plus an attached wing
-        ctx.drawImage(IMG.house, dx, dy + H - ih, iw, ih);
         ctx.drawImage(IMG.house, dx + W - iw, dy + H - ih * 0.86, iw * 0.86, ih * 0.86);
-        ctx.fillStyle = '#caa05a'; ctx.fillRect(dx, groundY - 8, W, 8);   // connecting porch
-      } else {
-        ctx.drawImage(IMG.house, dx, dy + H - ih, iw, ih);
+        ctx.fillStyle = '#caa05a'; ctx.fillRect(dx, groundY - 8, W, 8);
       }
     } else fallbackBox(dx, dy, '#7a4', W, H);
   }
-  // little nameplate above the home
+
+  // the usable bed + chest, at their fixture tiles (visible for every tier)
+  if (o.bed) drawBedAt(dx + (o.bed.x - o.x) * TS, dy + (o.bed.y - o.y) * TS);
+  if (o.chest) drawChestAt(dx + (o.chest.x - o.x) * TS, dy + (o.chest.y - o.y) * TS);
+
   label(dx + W / 2, dy - 4, t.name.toUpperCase());
+}
+
+function drawBedAt(bx, by) {
+  ctx.fillStyle = '#9c6b3f'; ctx.fillRect(bx + 3, by + 5, TS - 6, TS - 8);     // frame
+  ctx.fillStyle = '#c97b8a'; ctx.fillRect(bx + 4, by + 9, TS - 8, TS - 13);    // blanket
+  ctx.fillStyle = '#fff';    ctx.fillRect(bx + 4, by + 5, TS - 8, 6);          // pillow
+  ctx.strokeStyle = '#5a3a1c'; ctx.lineWidth = 1; ctx.strokeRect(bx + 3, by + 5, TS - 6, TS - 8);
+}
+function drawChestAt(cx2, cy2) {
+  if (ready(IMG.chest)) ctx.drawImage(IMG.chest, 0, 0, 16, 16, cx2 + 4, cy2 + 6, TS - 8, TS - 8);
+  else {
+    ctx.fillStyle = '#8a5a2b'; ctx.fillRect(cx2 + 5, cy2 + 8, TS - 10, TS - 12);
+    ctx.fillStyle = '#caa05a'; ctx.fillRect(cx2 + 5, cy2 + 6, TS - 10, 6);
+  }
 }
 
 function ready(img) { return img && img.complete && img.width; }
@@ -1412,6 +1536,12 @@ function drawItemIcon(c, item) {
       c.strokeStyle = steel; c.lineWidth = 5; c.beginPath(); c.arc(30, 16, 16, Math.PI * 1.1, Math.PI * 1.95); c.stroke();
       c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.beginPath(); c.arc(30, 16, 16, Math.PI * 1.1, Math.PI * 1.95); c.stroke(); break;
     }
+    case 'sapling': {
+      c.strokeStyle = '#7a5230'; c.lineWidth = 4; c.beginPath(); c.moveTo(24, 40); c.lineTo(24, 22); c.stroke();
+      c.fillStyle = '#5aa84b'; c.beginPath(); c.arc(24, 18, 11, 0, 7); c.fill();
+      c.fillStyle = '#76c95e'; c.beginPath(); c.arc(20, 16, 5, 0, 7); c.fill();
+      break;
+    }
     case 'fishingrod': {
       handle(10, 40, 36, 9, 5);                                 // rod
       c.strokeStyle = '#e8eef2'; c.lineWidth = 1.2;             // line
@@ -1491,6 +1621,7 @@ function updateHUD() {
     slot.classList.toggle('sel', i === game.selected);
     const cnt = slot.querySelector('.cnt');
     if (item && item.startsWith('seed_')) { const t = item.slice(5); cnt.textContent = (game.seeds[t] || 0); }
+    else if (item === 'sapling') { cnt.textContent = (game.bag.sapling || 0); }
     else cnt.textContent = '';
   });
   hud.msg.textContent = game.messageTime > 0 ? game.message : '';
@@ -1670,7 +1801,8 @@ if (typeof module !== 'undefined' && module.exports) {
                      genWorld, update, render, doAction, mulberry32,
                      fenceMask, FENCE_TILES, startFishing, catchFish, tryInteract,
                      POND_FISH, RIVER_FISH, keyName,
-                     HOME_TIERS, upgradeHome, canAfford, homeObj };
+                     HOME_TIERS, upgradeHome, canAfford, homeObj,
+                     plantSapling, SAPLING_DAYS };
 }
 
 boot();

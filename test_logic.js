@@ -45,7 +45,7 @@ const path = require('path');
 const eng = require(path.join(__dirname, 'engine.js'));
 const { CROPS, game, advanceDay, fmtClockTest, genWorld, update, render, doAction, fenceMask, FENCE_TILES,
         startFishing, catchFish, tryInteract, POND_FISH, RIVER_FISH, keyName,
-        HOME_TIERS, upgradeHome, canAfford, homeObj } = eng;
+        HOME_TIERS, upgradeHome, canAfford, homeObj, plantSapling, SAPLING_DAYS } = eng;
 
 let pass = 0, fail = 0;
 function check(name, cond) { (cond ? (pass++, console.log('  PASS', name)) : (fail++, console.log('  FAIL', name))); }
@@ -61,7 +61,9 @@ check('genWorld + update + render run without throwing', genOk);
 if (!genOk) console.log('    ->', genErr);
 check('world has the player home (starts as Basic Shelter)', game.objects.some(o => o.type === 'home' && o.tier === 0));
 check('world has trees', game.objects.some(o => o.type === 'tree'));
-check('world has a bed and shipping bin', game.objects.some(o => o.type === 'bed') && game.objects.some(o => o.type === 'bin'));
+check('home has a usable bed + chest, and a shipping bin exists',
+  (() => { const h = game.objects.find(o => o.type === 'home'); return h && h.bed && h.chest; })()
+  && game.objects.some(o => o.type === 'bin'));
 check('animals + enemies spawned', game.animals.length > 0 && game.enemies.length > 0);
 
 console.log('== Fence autotiling (pen should form corners + rails) ==');
@@ -133,6 +135,44 @@ check('walking up to the home shows the greeting once', game.homeIntroShown === 
 game.px = 30 * 48; game.py = 28 * 48; update(0.016);
 game.px = (hh.x + ht.w / 2) * 48; game.py = (hh.y + ht.h / 2) * 48; update(0.016);
 check('greeting does not repeat', game.homeIntroShown === true);
+
+console.log('== Shelter fixtures: usable bed + chest ==');
+const home2 = homeObj(); // tier 0 from genWorld
+const anyHomeSolid = (() => {
+  const t = HOME_TIERS[home2.tier];
+  for (let yy = 0; yy < t.h; yy++) for (let xx = 0; xx < t.w; xx++)
+    if (game.solid.has((home2.x + xx) + ',' + (home2.y + yy))) return true;
+  return false;
+})();
+check('basic shelter is walkable (open structure)', home2.solidFootprint === false && anyHomeSolid === false);
+game.sleeping = false; game.fading = 0;
+tryInteract(home2.bed.x, home2.bed.y);
+check('using the bed starts sleep', game.sleeping === true);
+game.sleeping = false; game.fadeDir = 0;
+game.bag = { wood: 3 }; game.chest = {};
+tryInteract(home2.chest.x, home2.chest.y);
+check('using the chest stores your items', (game.chest.wood || 0) === 3 && !game.bag.wood);
+
+console.log('== Roads out of Harvest Hollow ==');
+const posts = game.objects.filter(o => o.type === 'signpost');
+check('has signed routes (known) and an unknown trail', posts.some(p => p.known) && posts.some(p => !p.known));
+check('south road reaches the bottom edge', game.ground[game.ground.length - 1][20] === 'path');
+check('west road reaches the left edge', game.ground[10][0] === 'path');
+
+console.log('== Tree -> sapling -> replant -> regrow loop ==');
+// plant a sapling on open grass
+game.bag = { sapling: 1 };
+let sx = 25, sy = 20;
+while (game.solid.has(sx + ',' + sy) || game.ground[sy][sx] !== 'grass') sx++;
+plantSapling(sx, sy);
+const sap = game.objects.find(o => o.type === 'sapling' && o.x === sx && o.y === sy);
+check('planting a sapling consumes it and places a sapling object', sap && (game.bag.sapling || 0) === 0);
+check('a fresh sapling is walkable (not solid)', !game.solid.has(sx + ',' + sy));
+// grow it to maturity over SAPLING_DAYS
+for (let d = 0; d < SAPLING_DAYS; d++) advanceDay();
+const grown = game.objects.find(o => o.x === sx && o.y === sy);
+check('sapling matures into a tree', grown && grown.type === 'tree');
+check('matured tree becomes solid', game.solid.has(sx + ',' + sy));
 
 console.log('== Clock formatting (lowercase, 10-min ticks) ==');
 game.minutes = 360;  check('6:00 am', fmtClockTest() === '6:00 am');
