@@ -596,6 +596,8 @@ const game = {
   fishing: { active: false, state: '', t: 0, biteAt: 0, biteEnd: 0, tx: 0, ty: 0, type: 'pond' },
   // animated world clock (for water/waterfall shimmer)
   anim: 0,
+  camX: 0, camY: 0,            // smoothed (eased) camera position
+  camInit: false,
   fishLeaps: [],               // transient fish-jump animations over water
   leapTimer: 3,
   critters: [],                // ambient butterflies / bees / flies near the player
@@ -1506,6 +1508,7 @@ function update(dt) {
 
   checkHomeIntro();
   markExplored();
+  updateCamera(dt);
   updateAnimals(dt);
   updateEmployees(dt);
   updatePostman(dt);
@@ -1636,23 +1639,22 @@ function checkHomeIntro() {
 
 // collision-aware movement against solid tiles
 function moveBy(mx, my) {
-  const pad = 8 * SCALE;                 // collision box inset within the 32px sprite
-  const boxW = TS - 6, boxH = TS - 6;
-  // X
   let nx = game.px + mx;
-  if (!collides(nx, game.py, boxW, boxH)) game.px = nx;
-  // Y
+  if (!collides(nx, game.py)) game.px = nx;
   let ny = game.py + my;
-  if (!collides(game.px, ny, boxW, boxH)) game.py = ny;
+  if (!collides(game.px, ny)) game.py = ny;
   game.px = Math.max(0, Math.min((MAP_W - 1) * TS, game.px));
   game.py = Math.max(0, Math.min((MAP_H - 1) * TS, game.py));
 }
-function collides(px, py, w, h) {
-  const corners = [
-    [px + 3, py + h * 0.4], [px + w, py + h * 0.4],
-    [px + 3, py + h], [px + w, py + h],
-  ];
-  return corners.some(([cx, cy]) => game.solid.has(keyName(Math.floor(cx / TS), Math.floor(cy / TS))));
+// collision uses a small "feet" box near the bottom-centre of the sprite, so the player
+// can walk right up to (and visually overlap) fences, trees and other solids.
+function collides(px, py) {
+  const fx = px + TS * 0.30, fw = TS * 0.40;   // narrow box
+  const fy = py + TS * 0.62, fh = TS * 0.34;   // low (feet only)
+  const xs = [fx, fx + fw], ys = [fy, fy + fh];
+  for (const cy of ys) for (const cx of xs)
+    if (game.solid.has(keyName(Math.floor(cx / TS), Math.floor(cy / TS)))) return true;
+  return false;
 }
 
 function updateAnimals(dt) {
@@ -1705,13 +1707,22 @@ function updateEnemies(dt) {
 }
 
 // ----------------------------------------------------------------- RENDER
-function camera() {
+function camTarget() {
   let cx = game.px + TS / 2 - canvas.width / 2;
   let cy = game.py + TS / 2 - canvas.height / 2;
   cx = Math.max(0, Math.min(MAP_W * TS - canvas.width, cx));
   cy = Math.max(0, Math.min(MAP_H * TS - canvas.height, cy));
   return { cx, cy };
 }
+// ease the camera toward the player so it lags a touch behind (subtle swoop)
+function updateCamera(dt) {
+  const t = camTarget();
+  if (!game.camInit) { game.camX = t.cx; game.camY = t.cy; game.camInit = true; return; }
+  const k = 1 - Math.exp(-dt * 5);     // gentle follow; higher = snappier
+  game.camX += (t.cx - game.camX) * k;
+  game.camY += (t.cy - game.camY) * k;
+}
+function camera() { return { cx: Math.round(game.camX), cy: Math.round(game.camY) }; }
 
 function nightTint() {
   // 0 day .. up to ~0.55 deep night. brightens at dawn.

@@ -1,5 +1,5 @@
 // Sandy Cove service worker — offline cache. Version bumps on every build.
-const CACHE = 'sandy-cove-20260615223706';
+const CACHE = 'sandy-cove-20260615224659';
 const CORE = ['./', './index.html', './manifest.webmanifest',
               './icon-192.png', './icon-512.png', './icon-180.png'];
 self.addEventListener('install', (e) => {
