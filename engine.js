@@ -97,6 +97,13 @@ function farmLevel() {
   return lv;
 }
 
+// Game modes: Explorer is a relaxed mode (faster, cheaper, more loot); Adventurer is normal.
+function isExplorer() { return game.mode === 'explorer'; }
+function modeSpeed() { return isExplorer() ? 1.4 : 1; }
+function priceMult() { return isExplorer() ? 0.6 : 1; }                 // coin/currency costs
+function modePrice(n) { return Math.max(1, Math.round(n * priceMult())); }
+function lootMult() { return isExplorer() ? 2 : 1; }
+
 // Mail-order catalogue (no shop on the ranch — the big shops are in the towns).
 // Orders arrive by post the next Wednesday; the postman leaves a parcel by the tent.
 const CATALOGUE = [
@@ -114,15 +121,17 @@ function daysUntilPost() { let d = 1; while (!isPostDay(game.day + d)) d++; retu
 const LEARN_THRESHOLD = 3;          // crafts in an area before you've "earned the skill"
 const TOOL_MAX = 3;
 const CRAFT_RECIPES = [
-  { id: 'shed',    name: 'Build Tool Shed', area: 'carpentry',    mats: { wood: 80, stone: 30 }, fee: 500, once: true },
+  { id: 'shed',    name: 'Build Tool Shed', area: 'carpentry',    mats: { wood: 40, stone: 12 }, fee: 220, once: true },
+  { id: 'kitchen', name: 'Build Kitchen',   area: 'carpentry',    mats: { wood: 55, stone: 20 }, fee: 300, once: true },
   { id: 'axe',     name: 'Upgrade Axe',     area: 'toolsmithing', mats: { wood: 20, stone: 15 }, fee: 200, needsShed: true, tool: 'axe' },
   { id: 'pickaxe', name: 'Upgrade Pickaxe', area: 'toolsmithing', mats: { wood: 15, stone: 25 }, fee: 200, needsShed: true, tool: 'pickaxe' },
   { id: 'can',     name: 'Upgrade Watering Can', area: 'toolsmithing', mats: { wood: 10, stone: 10 }, fee: 150, needsShed: true, tool: 'wateringcan' },
 ];
 function skillLearned(area) { return (game.skills[area] || 0) >= LEARN_THRESHOLD; }
-function recipeFee(r) { return skillLearned(r.area) ? 0 : r.fee; }
+function recipeFee(r) { return skillLearned(r.area) ? 0 : modePrice(r.fee); }
 function recipeAvailable(r) {
-  if (r.once && r.id === 'shed' && game.shedBuilt) return false;
+  if (r.id === 'shed' && game.shedBuilt) return false;
+  if (r.id === 'kitchen' && game.kitchenBuilt) return false;
   if (r.needsShed && !game.shedBuilt) return false;
   if (r.tool && (game.toolLevel[r.tool] || 1) >= TOOL_MAX) return false;
   return true;
@@ -150,6 +159,17 @@ const SELLABLE = {
   carrot: CROPS.carrot.sell, pumpkin: CROPS.pumpkin.sell,
 };
 [...POND_FISH, ...RIVER_FISH].forEach(f => { SELLABLE[f.name] = f.sell; });
+
+// Artisan goods: process a raw item (in) into a far more valuable product (out) at the Kitchen.
+const ARTISAN = [
+  { in: 'milk',    out: 'Cheese',           sell: 230 },
+  { in: 'egg',     out: 'Mayonnaise',       sell: 95 },
+  { in: 'parsnip', out: 'Parsnip Preserve', sell: Math.round(CROPS.parsnip.sell * 2.3) },
+  { in: 'carrot',  out: 'Carrot Preserve',  sell: Math.round(CROPS.carrot.sell * 2.3) },
+  { in: 'potato',  out: 'Potato Preserve',  sell: Math.round(CROPS.potato.sell * 2.3) },
+  { in: 'pumpkin', out: 'Pumpkin Preserve', sell: Math.round(CROPS.pumpkin.sell * 2.3) },
+];
+ARTISAN.forEach(a => { SELLABLE[a.out] = a.sell; });
 
 // Tools live in the hotbar. seed_* entries are plantable.
 const TOOLS = ['hoe', 'wateringcan', 'axe', 'pickaxe', 'scythe', 'sword', 'fishingrod'];
@@ -189,6 +209,7 @@ const game = {
   dir: 'down', moving: false, facing: 'down',
   animTime: 0, animFrame: 0,
   speed: 150,                  // px / sec
+  mode: 'adventurer',          // 'adventurer' (normal) or 'explorer' (faster, cheaper, more loot)
   energy: 100, maxEnergy: 100,
   health: 100, maxHealth: 100,
   gold: 150,                   // Coins (standard currency)
@@ -203,6 +224,8 @@ const game = {
   skills: { carpentry: 0, toolsmithing: 0 },   // crafting skill XP (learned at LEARN_THRESHOLD)
   toolLevel: { axe: 1, pickaxe: 1, wateringcan: 1, hoe: 1 },
   shedBuilt: false,
+  kitchenBuilt: false,
+  kitchenMenuOpen: false,
   motes: [],                   // faint drifting ambient particles
   // time
   minutes: DAY_START, day: 1, season: 'Spring',
@@ -253,7 +276,11 @@ const game = {
   hireMenuOpen: false,
   catalogueOpen: false,
   craftMenuOpen: false,
+  storeMenuOpen: false,
   pauseMenuOpen: false,
+  area: 'ranch',               // current map area
+  areas: {},                   // cached world state per area
+  travelCooldown: 0,           // prevents immediate re-trigger after travelling
   started: false,              // becomes true once the player clicks Play
 };
 
@@ -413,6 +440,67 @@ function genWorld() {
   rebuildSolids();
 }
 
+// ----------------------------------------------------------------- AREAS / TRAVEL
+// the per-area world fields (kept the same map size so the rest of the engine is unchanged)
+function snapshotArea() {
+  return {
+    ground: game.ground, objects: game.objects, tilled: game.tilled, watered: game.watered,
+    crops: game.crops, animals: game.animals, enemies: game.enemies, cliff: game.cliff,
+    plateaus: game.plateaus, waterType: game.waterType, waterfall: game.waterfall,
+    bridges: game.bridges, fords: game.fords, lilypads: game.lilypads, explored: game.explored,
+  };
+}
+function initAreaFields() {
+  game.ground = []; game.objects = []; game.tilled = new Set(); game.watered = new Set();
+  game.crops = {}; game.animals = []; game.enemies = []; game.cliff = new Set(); game.plateaus = [];
+  game.waterType = {}; game.waterfall = []; game.bridges = new Set(); game.fords = new Set();
+  game.lilypads = new Set(); game.explored = new Set();
+}
+function travelTo(area, sx, sy) {
+  game.areas[game.area] = snapshotArea();
+  game.area = area;
+  if (game.areas[area]) Object.assign(game, game.areas[area]);
+  else { initAreaFields(); if (area === 'village') genVillage(); else genWorld(); }
+  game.px = sx * TS; game.py = sy * TS;
+  game.camInit = false; game.travelCooldown = 0.7;
+  rebuildSolids();
+  toast(area === 'village' ? 'Mossy Village' : 'Harvest Hollow', 3);
+}
+// edge transitions: ranch west road <-> village east road
+function checkTravel(dt) {
+  if (game.travelCooldown > 0) { game.travelCooldown -= dt; return; }
+  const pcx = Math.floor((game.px + TS / 2) / TS), pcy = Math.floor((game.py + TS / 2) / TS);
+  if (game.area === 'ranch' && pcx <= 0 && pcy >= 9 && pcy <= 11) travelTo('village', MAP_W - 2, 17);
+  else if (game.area === 'village' && pcx >= MAP_W - 1 && pcy >= 16 && pcy <= 18) travelTo('ranch', 1, 10);
+}
+
+// the first town — reached along the west road, signposted "Mossy Village"
+function genVillage() {
+  for (let y = 0; y < MAP_H; y++) { game.ground[y] = []; for (let x = 0; x < MAP_W; x++) game.ground[y][x] = 'grass'; }
+  // main road across (east entrance from the ranch) with a spur up to the store
+  for (let x = 6; x < MAP_W; x++) game.ground[17][x] = 'path';
+  for (let y = 12; y < 18; y++) game.ground[y][17] = 'path';
+  // buildings
+  addObject('store', 16, 9, {});                    // 3x3 general store, spur leads to it
+  addObject('house', 5, 6, { w: 6, h: 8 });
+  addObject('house', 31, 6, { w: 6, h: 8 });
+  addObject('house', 33, 20, { w: 6, h: 8 });
+  addObject('sign', MAP_W - 4, 16, { text: 'Mossy Village' });
+  // villagers (stationary for now — greet on interaction)
+  addObject('villager', 14, 18, { name: 'Mara', col: '#c66a9a' });
+  addObject('villager', 20, 16, { name: 'Tomas', col: '#6a8ac6' });
+  addObject('villager', 24, 19, { name: 'Elsie', col: '#c6a86a' });
+  // a little greenery + a pond
+  const rnd = mulberry32(7);
+  for (let y = 1; y < MAP_H - 1; y++) for (let x = 1; x < MAP_W - 1; x++) {
+    const edge = (x < 2 || x > MAP_W - 3 || y < 2 || y > MAP_H - 3);
+    if (edge && rnd() < 0.45 && game.ground[y][x] === 'grass' && !occupied(x, y)) addObject('tree', x, y, { hp: 4 });
+  }
+  for (let y = 26; y < 31; y++) for (let x = 6; x < 12; x++) setWater(x, y, 'pond');
+  [[7, 28], [9, 27], [10, 29]].forEach(([x, y]) => game.lilypads.add(keyName(x, y)));
+  rebuildSolids();
+}
+
 function buildPen(ox, oy, w, h) {
   for (let x = ox; x < ox + w; x++) {
     addObject('fence', x, oy, {});
@@ -480,10 +568,11 @@ function rebuildSolids() {
         for (let yy = 0; yy < t.h; yy++)
           for (let xx = 0; xx < t.w; xx++) game.solid.add(keyName(o.x + xx, o.y + yy));
       }
-    } else if (o.type === 'shed') {
-      for (let yy = 0; yy < 2; yy++) for (let xx = 0; xx < 2; xx++) game.solid.add(keyName(o.x + xx, o.y + yy));
+    } else if (o.type === 'shed' || o.type === 'store') {
+      const fw = o.type === 'store' ? 3 : 2, fh = o.type === 'store' ? 3 : 2;
+      for (let yy = 0; yy < fh; yy++) for (let xx = 0; xx < fw; xx++) game.solid.add(keyName(o.x + xx, o.y + yy));
     } else if (o.type === 'tree' || o.type === 'rock' || o.type === 'fence' ||
-               o.type === 'chest' || o.type === 'bin' || o.type === 'jobboard' || o.type === 'workbench') {
+               o.type === 'chest' || o.type === 'bin' || o.type === 'jobboard' || o.type === 'workbench' || o.type === 'kitchen') {
       game.solid.add(keyName(o.x, o.y));
       if (o.type === 'fence') game.fenceSet.add(keyName(o.x, o.y));
     }
@@ -521,6 +610,8 @@ window.addEventListener('keydown', (e) => {
   if (game.hireMenuOpen) { if (e.key === 'Escape') closeHireMenu(); return; }
   if (game.catalogueOpen) { if (e.key === 'Escape') closeCatalogue(); return; }
   if (game.craftMenuOpen) { if (e.key === 'Escape') closeCraftMenu(); return; }
+  if (game.kitchenMenuOpen) { if (e.key === 'Escape') closeKitchenMenu(); return; }
+  if (game.storeMenuOpen) { if (e.key === 'Escape') closeStoreMenu(); return; }
   if (game.paused && e.key !== 'Escape') return;
   keys[e.key.toLowerCase()] = true;
   // hotbar select (1-9 and 0 for slot 10)
@@ -710,14 +801,15 @@ function hitObject(kind, tx, ty, drop, amount) {
   if (!o) return;
   o.hp -= toolPower(kind); o.shake = 0.25; spendEnergy(2);   // upgraded tools hit harder
   if (o.hp <= 0) {
-    addBag(drop, amount);
+    const got = amount * lootMult();          // Explorer mode yields more
+    addBag(drop, got);
     game.objects = game.objects.filter(x => x !== o);
     rebuildSolids();
     let extra = '';
     // Emeralds are mined from rocks; felled trees sometimes drop a replantable sapling
-    if (kind === 'rock' && Math.random() < 0.18) { game.emeralds += 1; extra = ' — and an Emerald!'; }
-    if (kind === 'tree' && Math.random() < 0.45) { addBag('sapling', 1); extra = ' — and a Sapling!'; }
-    toast('+' + amount + ' ' + drop + extra, extra ? 4 : 2.4);
+    if (kind === 'rock' && Math.random() < 0.18 * (isExplorer() ? 2 : 1)) { game.emeralds += 1; extra = ' — and an Emerald!'; }
+    if (kind === 'tree' && Math.random() < (isExplorer() ? 0.8 : 0.45)) { addBag('sapling', 1); extra = ' — and a Sapling!'; }
+    toast('+' + got + ' ' + drop + extra, extra ? 4 : 2.4);
   }
 }
 
@@ -787,6 +879,10 @@ function tryInteract(tx, ty) {
   }
   // workbench (or the shed) -> crafting
   if (o && (o.type === 'workbench' || o.type === 'shed')) { openCraftMenu(); return true; }
+  // kitchen -> process raw goods into artisan products
+  if (o && o.type === 'kitchen') { openKitchenMenu(); return true; }
+  // village general store -> buy seeds / sell goods at a better price
+  if (o && o.type === 'store') { openStoreMenu(); return true; }
   // job board -> hire & manage workers (needs an established farm)
   if (o && o.type === 'jobboard') {
     if (farmLevel() < 2) { toast('The job board is bare. Grow your farm (reach Farm Lv 2 by shipping goods) to attract workers.', 6); }
@@ -797,8 +893,14 @@ function tryInteract(tx, ty) {
   if (o && o.type === 'bin') { sellAll(); return true; }
   // parcel left by the postman -> collect the delivery
   if (o && o.type === 'parcel') { collectMail(); return true; }
-  // Harvest Hollow sign
-  if (o && o.type === 'sign') { toast('Harvest Hollow — your home. For now.'); return true; }
+  // villager -> a friendly greeting
+  if (o && o.type === 'villager') {
+    const lines = ['"Welcome to Mossy Village!"', '"The store has better prices than mail-order."',
+      '"Folk say Sandy Cove is just a tale... but you never know."', '"Lovely weather for the harvest."'];
+    toast(o.name + ': ' + lines[(o.x + o.y) % lines.length], 5); return true;
+  }
+  // sign
+  if (o && o.type === 'sign') { toast(o.text + (o.text === 'Harvest Hollow' ? ' — your home. For now.' : ''), 4); return true; }
   // the relic in the grotto: the first real clue toward Sandy Cove
   if (o && o.type === 'relic') {
     if (!game.secretFound) {
@@ -823,13 +925,17 @@ function tryInteract(tx, ty) {
 }
 
 function sellAll() {
-  let total = 0, count = 0;
+  let total = 0, count = 0; const lines = [];
   for (const it in game.bag) {
-    if (SELLABLE[it]) { total += SELLABLE[it] * game.bag[it]; count += game.bag[it]; delete game.bag[it]; }
+    if (SELLABLE[it]) {
+      const v = SELLABLE[it] * game.bag[it];
+      lines.push(game.bag[it] + '× ' + it + ' = ' + v + 'g');
+      total += v; count += game.bag[it]; delete game.bag[it];
+    }
   }
   game.gold += total;
   game.farmXP += total;          // shipping grows the farm's reputation/level
-  toast(count ? 'Sold ' + count + ' items for ' + total + 'g.' : 'Nothing to ship.');
+  toast(count ? 'Shipped: ' + lines.join(', ') + '  —  +' + total + ' coins' : 'Nothing to ship.', count ? 6 : 2.4);
 }
 
 // the "Order"/B button: open the catalogue if standing near it
@@ -844,8 +950,9 @@ function tryBuy() {
 // ---- mail-order catalogue + Wednesday post ----
 function orderItem(idx) {
   const it = CATALOGUE[idx]; if (!it) return false;
-  if (game.gold < it.price) { toast('Not enough coins to order ' + it.name + '.'); return false; }
-  game.gold -= it.price;
+  const price = modePrice(it.price);
+  if (game.gold < price) { toast('Not enough coins to order ' + it.name + '.'); return false; }
+  game.gold -= price;
   const ex = game.pendingOrders.find(o => o.key === it.key);
   if (ex) ex.qty += 1; else game.pendingOrders.push({ key: it.key, name: it.name, qty: 1 });
   toast('Ordered ' + it.name + ' — arrives in ' + daysUntilPost() + ' day(s), on post day.', 4);
@@ -891,6 +998,11 @@ function craftRecipe(id) {
     addObject('shed', 9, 15, {});
     rebuildSolids();
     toast('Tool Shed built! Toolsmithing is now available at the workbench.', 6);
+  } else if (r.id === 'kitchen') {
+    game.kitchenBuilt = true;
+    addObject('kitchen', 8, 12, {});
+    rebuildSolids();
+    toast('Kitchen built! Process milk, eggs and crops into valuable goods here.', 6);
   } else if (r.tool) {
     game.toolLevel[r.tool] = Math.min(TOOL_MAX, (game.toolLevel[r.tool] || 1) + 1);
     toast(r.name + ' to Lv ' + game.toolLevel[r.tool] + '!', 4);
@@ -910,6 +1022,16 @@ function toolPower(kind) {
   if (kind === 'tree') return game.toolLevel.axe || 1;
   if (kind === 'rock') return game.toolLevel.pickaxe || 1;
   return 1;
+}
+
+// turn one raw item into its artisan product at the Kitchen
+function processItem(idx) {
+  const a = ARTISAN[idx]; if (!a) return false;
+  if ((game.bag[a.in] || 0) < 1) { toast('No ' + a.in + ' to process.'); return false; }
+  game.bag[a.in] -= 1; if (game.bag[a.in] <= 0) delete game.bag[a.in];
+  addBag(a.out, 1);
+  toast('Made ' + a.out + ' — worth ' + a.sell + ' coins.', 3);
+  return true;
 }
 
 function spendEnergy(n) {
@@ -953,8 +1075,9 @@ function upgradeHome() {
 function hireCandidate(idx) {
   const c = HIRE_POOL[idx]; if (!c) return false;
   if (farmLevel() < c.minFarmLv) { toast('Your farm isn\'t established enough for a ' + c.tier + ' yet.'); return false; }
-  if (currencyAmount(c.cur) < c.hire) { toast('Not enough ' + CUR_NAME[c.cur] + ' to hire a ' + c.tier + '.'); return false; }
-  spendCurrency(c.cur, c.hire);
+  const hire = modePrice(c.hire);
+  if (currencyAmount(c.cur) < hire) { toast('Not enough ' + CUR_NAME[c.cur] + ' to hire a ' + c.tier + '.'); return false; }
+  spendCurrency(c.cur, hire);
   const h = homeObj();
   const e = {
     id: ++game.npcId, role: c.role, tier: c.tier, level: 1, cap: c.cap, upBase: c.upBase,
@@ -1041,14 +1164,15 @@ function advanceDay() {
 
 // ----------------------------------------------------------------- SAVE/LOAD
 function saveGame() {
+  if (game.area !== 'ranch') return;   // the persistent save is the home ranch; village is ephemeral
   try {
     const data = {
       ptx: game.px / TS, pty: game.py / TS,   // store position in tiles (scale-independent)
       energy: game.energy, health: game.health,
-      gold: game.gold, pearls: game.pearls, emeralds: game.emeralds,
+      gold: game.gold, pearls: game.pearls, emeralds: game.emeralds, mode: game.mode,
       farmXP: game.farmXP, employees: game.employees, npcId: game.npcId,
       pendingOrders: game.pendingOrders, mail: game.mail,
-      skills: game.skills, toolLevel: game.toolLevel, shedBuilt: game.shedBuilt,
+      skills: game.skills, toolLevel: game.toolLevel, shedBuilt: game.shedBuilt, kitchenBuilt: game.kitchenBuilt,
       minutes: game.minutes, day: game.day,
       hotbar: game.hotbar, selected: game.selected, bag: game.bag,
       chest: game.chest, seeds: game.seeds,
@@ -1068,12 +1192,12 @@ function loadGame() {
     Object.assign(game, {
       px: (d.ptx != null ? d.ptx * TS : d.px) || 0, py: (d.pty != null ? d.pty * TS : d.py) || 0,
       energy: d.energy, health: d.health, gold: d.gold,
-      pearls: d.pearls || 0, emeralds: d.emeralds || 0,
+      pearls: d.pearls || 0, emeralds: d.emeralds || 0, mode: d.mode || 'adventurer',
       farmXP: d.farmXP || 0, employees: d.employees || [], npcId: d.npcId || 0,
       pendingOrders: d.pendingOrders || [], mail: d.mail || [],
       skills: d.skills || { carpentry: 0, toolsmithing: 0 },
       toolLevel: d.toolLevel || { axe: 1, pickaxe: 1, wateringcan: 1, hoe: 1 },
-      shedBuilt: !!d.shedBuilt,
+      shedBuilt: !!d.shedBuilt, kitchenBuilt: !!d.kitchenBuilt,
       minutes: d.minutes, day: d.day, hotbar: d.hotbar, selected: d.selected,
       bag: d.bag, chest: d.chest, seeds: d.seeds, crops: d.crops, objects: d.objects,
       secretFound: !!d.secretFound, homeIntroShown: !!d.homeIntroShown,
@@ -1134,7 +1258,7 @@ function update(dt) {
     if (Math.abs(dx) >= Math.abs(dy)) game.facing = dx < 0 ? 'left' : 'right';
     else game.facing = dy < 0 ? 'up' : 'down';
     const len = Math.hypot(dx, dy) || 1;
-    const sp = game.speed * (game.energy <= 0 ? 0.6 : 1);
+    const sp = game.speed * modeSpeed() * (game.energy <= 0 ? 0.6 : 1);
     moveBy((dx / len) * sp * dt, (dy / len) * sp * dt);
     game.animTime += dt;
     if (game.animTime > 0.12) { game.animTime = 0; game.animFrame = (game.animFrame + 1) % 6; }
@@ -1147,6 +1271,7 @@ function update(dt) {
   if (game.messageTime > 0) game.messageTime -= dt;
 
   checkHomeIntro();
+  checkTravel(dt);
   markExplored();
   updateCamera(dt);
   updateAnimals(dt);
@@ -1462,6 +1587,7 @@ function objSortY(o) {
   if (o.type === 'house') return (o.y + o.h) * TS;
   if (o.type === 'home') return (o.y + HOME_TIERS[o.tier].h) * TS;
   if (o.type === 'shed') return (o.y + 2) * TS;
+  if (o.type === 'store') return (o.y + 3) * TS;
   if (o.type === 'tree') return (o.y + 1) * TS;
   return (o.y + 1) * TS;
 }
@@ -1886,6 +2012,31 @@ function drawObject(o, cx, cy) {
       ctx.moveTo(dx, dy + H2 * 0.45); ctx.lineTo(dx + W2 / 2, dy + 6); ctx.lineTo(dx + W2, dy + H2 * 0.45); ctx.closePath(); ctx.fill();
       ctx.fillStyle = '#5a3a1c'; ctx.fillRect(dx + W2 / 2 - 10, dy + H2 - 30, 20, 30);         // door
       label(dx + W2 / 2, dy + 2, 'TOOL SHED'); break;
+    }
+    case 'kitchen': {
+      ctx.fillStyle = '#d8c4a0'; ctx.fillRect(dx + 4, dy + TS * 0.4, TS - 8, TS * 0.55);       // counter
+      ctx.fillStyle = '#9c9c9c'; ctx.fillRect(dx + 8, dy + TS * 0.5, 14, 12);                   // stove
+      ctx.fillStyle = '#ff9e57'; ctx.fillRect(dx + 11, dy + TS * 0.46, 8, 5);                   // pot/flame
+      ctx.fillStyle = '#8fd0f6'; ctx.fillRect(dx + TS - 18, dy + TS * 0.52, 10, 9);             // basin
+      label(dx + TS / 2, dy + TS * 0.4 - 2, 'KITCHEN'); break;
+    }
+    case 'store': {
+      const W3 = 3 * TS, H3 = 3 * TS;
+      ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fillRect(dx + 4, dy + H3 - 6, W3 - 8, 6);
+      ctx.fillStyle = '#c9a46a'; ctx.fillRect(dx + 6, dy + H3 * 0.34, W3 - 12, H3 * 0.66 - 4);  // walls
+      ctx.fillStyle = '#7a3f2a'; ctx.fillRect(dx, dy + H3 * 0.3, W3, 12);                        // awning
+      ctx.fillStyle = '#e8d2a0'; for (let i = 0; i < 6; i++) ctx.fillRect(dx + i * (W3 / 6), dy + H3 * 0.3, W3 / 12, 12); // stripes
+      ctx.fillStyle = '#5a3a1c'; ctx.fillRect(dx + W3 / 2 - 12, dy + H3 - 34, 24, 34);           // door
+      ctx.fillStyle = '#8fd0f6'; ctx.fillRect(dx + 14, dy + H3 * 0.5, 16, 14); ctx.fillRect(dx + W3 - 30, dy + H3 * 0.5, 16, 14);
+      label(dx + W3 / 2, dy + H3 * 0.3 - 4, 'GENERAL STORE'); break;
+    }
+    case 'villager': {
+      const pdx = dx - (PDRAW - TS) / 2, pdy = dy - (PDRAW - TS);
+      drawShadow(dx + TS / 2, dy + TS - 4, TS * 0.6);
+      if (ready(IMG.player)) ctx.drawImage(IMG.player, 0, IDLE.down * PF, PF, PF, pdx, pdy, PDRAW, PDRAW);
+      else { ctx.fillStyle = o.col || '#caa'; ctx.fillRect(dx + 20, dy + 30, 24, 34); }
+      ctx.fillStyle = (o.col || '#caa') + ''; ctx.fillRect(pdx + PF, pdy + PF, PF, PF * 0.6);   // clothing tint
+      label(dx + TS / 2, dy - 2, o.name || 'Villager'); break;
     }
     case 'parcel': {
       const bob = Math.sin(game.anim * 3) * 1.5;
@@ -2455,6 +2606,68 @@ function renderCraftMenu() {
   body.querySelectorAll('[data-craft]').forEach(b => b.addEventListener('click', () => { if (craftRecipe(b.dataset.craft)) renderCraftMenu(); }));
 }
 
+// ---- kitchen (artisan processing) menu ----
+function openKitchenMenu() {
+  const p = document.getElementById('kitchenMenu'); if (!p) return;
+  game.kitchenMenuOpen = true; game.paused = true; renderKitchenMenu(); p.style.display = 'flex';
+}
+function closeKitchenMenu() {
+  const p = document.getElementById('kitchenMenu'); if (!p) return;
+  game.kitchenMenuOpen = false; game.paused = false; p.style.display = 'none';
+}
+function renderKitchenMenu() {
+  const body = document.getElementById('kitBody'); if (!body) return;
+  let html = '<p class="dim">Turn raw goods into artisan products worth far more at market.</p>';
+  ARTISAN.forEach((a, i) => {
+    const have = game.bag[a.in] || 0;
+    html += '<div class="hmrow"><span>' + a.in.charAt(0).toUpperCase() + a.in.slice(1) + ' &rarr; <b>' + a.out + '</b>'
+      + ' <span class="dim">(' + a.sell + ' coins · you have ' + have + ')</span></span>'
+      + '<span class="hmbtns"><button data-make="' + i + '"' + (have > 0 ? '' : ' disabled') + '>Make</button></span></div>';
+  });
+  body.innerHTML = html;
+  body.querySelectorAll('[data-make]').forEach(b => b.addEventListener('click', () => { if (processItem(+b.dataset.make)) renderKitchenMenu(); }));
+}
+
+// ---- village general store (instant buy/sell, better prices than home) ----
+const STORE_SELL_MULT = 1.15;
+function storeSellAll() {
+  let total = 0, count = 0;
+  for (const it in game.bag) {
+    if (SELLABLE[it]) { total += Math.round(SELLABLE[it] * STORE_SELL_MULT) * game.bag[it]; count += game.bag[it]; delete game.bag[it]; }
+  }
+  game.gold += total; game.farmXP += total;
+  toast(count ? 'Sold ' + count + ' goods for ' + total + ' coins (town price).' : 'Nothing to sell.', 4);
+}
+function storeBuySeed(idx) {
+  const it = CATALOGUE[idx]; if (!it) return false;
+  const price = modePrice(it.price);
+  if (game.gold < price) { toast('Not enough coins for ' + it.name + '.'); return false; }
+  game.gold -= price; game.seeds[it.key] = (game.seeds[it.key] || 0) + 1;
+  toast('Bought ' + it.name + '.', 3); return true;
+}
+function openStoreMenu() {
+  const p = document.getElementById('storeMenu'); if (!p) return;
+  game.storeMenuOpen = true; game.paused = true; renderStoreMenu(); p.style.display = 'flex';
+}
+function closeStoreMenu() {
+  const p = document.getElementById('storeMenu'); if (!p) return;
+  game.storeMenuOpen = false; game.paused = false; p.style.display = 'none';
+}
+function renderStoreMenu() {
+  const body = document.getElementById('stBody'); if (!body) return;
+  let html = '<p class="hmlv">Coins: <b class="coinc">' + game.gold.toLocaleString() + '</b></p>';
+  html += '<h3>Buy seeds (delivered now)</h3>';
+  CATALOGUE.forEach((it, i) => {
+    html += '<div class="hmrow"><span>' + it.name + ' <span class="dim">' + it.price + ' coins</span></span>'
+      + '<span class="hmbtns"><button data-buy="' + i + '"' + (game.gold >= it.price ? '' : ' disabled') + '>Buy</button></span></div>';
+  });
+  html += '<h3>Sell</h3><div class="hmrow"><span>Sell all goods <span class="dim">(+15% vs home bin)</span></span>'
+    + '<span class="hmbtns"><button data-sellall="1">Sell all</button></span></div>';
+  body.innerHTML = html;
+  body.querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => { if (storeBuySeed(+b.dataset.buy)) renderStoreMenu(); }));
+  body.querySelectorAll('[data-sellall]').forEach(b => b.addEventListener('click', () => { storeSellAll(); renderStoreMenu(); }));
+}
+
 // ---- pause / options menu ----
 function togglePauseMenu() {
   if (!game.started) return;                 // ignore before the game has started
@@ -2480,6 +2693,17 @@ function toggleFullscreen() {
 function resetSave() {
   try { localStorage.removeItem('harvest_hollow_save'); } catch (e) {}
   location.reload();
+}
+function setMode(m) {
+  game.mode = (m === 'explorer') ? 'explorer' : 'adventurer';
+  const ea = document.getElementById('modeAdv'), ee = document.getElementById('modeExp');
+  if (ea) ea.classList.toggle('sel', !isExplorer());
+  if (ee) ee.classList.toggle('sel', isExplorer());
+}
+function toggleMode() {
+  setMode(isExplorer() ? 'adventurer' : 'explorer');
+  toast('Mode: ' + (isExplorer() ? 'Explorer — faster, cheaper, more loot' : 'Adventurer — normal'), 5);
+  saveGame();
 }
 // fetch the latest version (refresh the service worker cache) WITHOUT wiping the save
 function updateGame() {
@@ -2508,7 +2732,10 @@ function bindPauseMenu() {
   on('pmOptionsBtn', () => { const o = document.getElementById('pmOptions'); if (o) o.style.display = (o.style.display === 'none' ? 'block' : 'none'); });
   on('pmMinimap', () => document.body.classList.toggle('hidemap'));
   on('pmFullscreen', toggleFullscreen);
+  on('pmMode', toggleMode);
   on('pmUpdate', updateGame);
+  on('modeAdv', () => setMode('adventurer'));   // loading-screen mode picker
+  on('modeExp', () => setMode('explorer'));
   on('pmSave', () => { saveGame(); toast('Game saved.'); closePauseMenu(); });
   on('pmReset', () => { if (window.confirm('Start over? This erases your saved game.')) resetSave(); });
 }
@@ -2569,6 +2796,10 @@ function bindBuildMenu() {
   if (cc) cc.addEventListener('click', closeCatalogue);
   const rc = document.getElementById('crClose');
   if (rc) rc.addEventListener('click', closeCraftMenu);
+  const kc = document.getElementById('kitClose');
+  if (kc) kc.addEventListener('click', closeKitchenMenu);
+  const sc = document.getElementById('stClose');
+  if (sc) sc.addEventListener('click', closeStoreMenu);
 }
 
 async function boot() {
@@ -2596,7 +2827,9 @@ if (typeof module !== 'undefined' && module.exports) {
                      applyEmployees, empUpgradeCost, TS, SCALE, markExplored, updateFishLeaps,
                      CATALOGUE, orderItem, deliverPost, collectMail, isPostDay, daysUntilPost,
                      CRAFT_RECIPES, craftRecipe, canCraft, skillLearned, recipeFee, recipeAvailable,
-                     toolPower, TOOL_MAX, LEARN_THRESHOLD };
+                     toolPower, TOOL_MAX, LEARN_THRESHOLD,
+                     ARTISAN, processItem, genVillage, travelTo, storeBuySeed, storeSellAll,
+                     setMode, isExplorer, modeSpeed, priceMult, lootMult, MAP_W };
 }
 
 boot();

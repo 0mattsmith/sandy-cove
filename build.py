@@ -181,6 +181,21 @@ html = """<!DOCTYPE html>
   #craftMenu .close { display: block; margin: 14px auto 0; font-family: inherit; font-weight: bold; font-size: 14px;
     padding: 8px 16px; border-radius: 8px; border: 2px solid #6b3f1d; color: #4a2c12; background: linear-gradient(#f0d3a0, #d2a262); cursor: pointer; }
 
+  /* ---- kitchen + store menus (shared look) ---- */
+  #kitchenMenu, #storeMenu { display: none; position: absolute; inset: 0; z-index: 30;
+    background: rgba(20,16,30,.55); align-items: center; justify-content: center; }
+  #kitchenMenu .panel, #storeMenu .panel { width: min(460px, 92vw); max-height: 84vh; overflow-y: auto; padding: 16px 18px; }
+  #kitchenMenu h2, #storeMenu h2 { margin: 0 0 4px; color: #4a2c12; text-shadow: 0 1px 0 #f3d8a8; }
+  #kitchenMenu h3, #storeMenu h3 { margin: 12px 0 4px; color: #5a3517; font-size: 15px; border-bottom: 1px solid #8a5a2b55; padding-bottom: 2px; }
+  #kitchenMenu .hmrow, #storeMenu .hmrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; color: #3a2a16; }
+  #kitchenMenu button, #storeMenu button { font-family: inherit; font-weight: bold; font-size: 13px; padding: 6px 12px; border-radius: 7px;
+    border: 2px solid #6b3f1d; color: #4a2c12; background: linear-gradient(#f0d3a0, #d2a262); cursor: pointer; }
+  #kitchenMenu button:disabled, #storeMenu button:disabled { opacity: .5; cursor: not-allowed; }
+  #kitchenMenu .dim, #storeMenu .dim { color: #7a6a52; } #storeMenu .coinc { color: #6b3f12; }
+  #kitchenMenu .hmlv, #storeMenu .hmlv { font-size: 13px; color: #4a2c12; margin: 0 0 4px; }
+  #kitchenMenu .close, #storeMenu .close { display: block; margin: 14px auto 0; font-family: inherit; font-weight: bold; font-size: 14px;
+    padding: 8px 16px; border-radius: 8px; border: 2px solid #6b3f1d; color: #4a2c12; background: linear-gradient(#f0d3a0, #d2a262); cursor: pointer; }
+
   /* ---- right-edge vertical energy/health bars ---- */
   #bars { position: absolute; right: 16px; bottom: 96px; display: flex; gap: 8px; align-items: flex-end;
     pointer-events: none; }
@@ -238,6 +253,12 @@ html = """<!DOCTYPE html>
   #loadBar { height: 100%; width: 8%; border-radius: 6px; transition: width 1.6s ease;
     background: linear-gradient(#caf06a, #5fae35); }
   #loadTip { font-size: 12px; color: #5a4630; margin-top: 8px; height: 16px; }
+  #modePick { display: flex; gap: 10px; margin: 6px 0 12px; }
+  .modebtn { font-family: inherit; font-size: 14px; font-weight: bold; cursor: pointer; line-height: 1.3;
+    padding: 8px 14px; border-radius: 10px; border: 2px solid #6b3f1d; color: #4a2c12;
+    background: linear-gradient(#f0d3a0, #d2a262); opacity: .7; }
+  .modebtn small { font-weight: normal; font-size: 11px; color: #5a4630; }
+  .modebtn.sel { opacity: 1; box-shadow: 0 0 0 3px #e4b24d; }
   #playBtn { display: none; margin-top: 14px; font-family: inherit; font-weight: bold; font-size: 18px;
     padding: 10px 28px; border-radius: 10px; border: 2px solid #6b3f1d; color: #4a2c12; cursor: pointer;
     background: linear-gradient(#f0d3a0, #d2a262); }
@@ -347,6 +368,22 @@ html = """<!DOCTYPE html>
     </div>
   </div>
 
+  <div id="kitchenMenu">
+    <div class="panel wood">
+      <h2>Kitchen</h2>
+      <div id="kitBody"></div>
+      <button id="kitClose" class="close">Close</button>
+    </div>
+  </div>
+
+  <div id="storeMenu">
+    <div class="panel wood">
+      <h2>Mossy Village &mdash; General Store</h2>
+      <div id="stBody"></div>
+      <button id="stClose" class="close">Close</button>
+    </div>
+  </div>
+
   <div id="bars">
     <div class="vbar wood"><i id="energyBar" style="height:100%"></i></div>
     <div class="vbar wood"><i id="healthBar" style="height:100%"></i></div>
@@ -381,6 +418,7 @@ html = """<!DOCTYPE html>
       <button id="pmOptionsBtn">Options</button>
       <button id="pmSave">Save Game</button>
       <div id="pmOptions">
+        <button id="pmMode">Switch Mode (Explorer/Adventurer)</button>
         <button id="pmMinimap">Toggle Minimap</button>
         <button id="pmFullscreen">Toggle Fullscreen</button>
         <button id="pmUpdate">Update Game (keep save)</button>
@@ -394,6 +432,10 @@ html = """<!DOCTYPE html>
     <h1 class="emboss">Sandy Cove</h1>
     <p class="tag">A cosy farming life-sim. Tend your homestead at <b>Harvest Hollow</b> — raise crops and animals, fish the rivers and ponds, upgrade your home from a humble shelter all the way to a Ranch &mdash; and uncover the way to the hidden <b>Sandy Cove</b>.</p>
     <p class="hint">Move: WASD / Arrows or the on-screen stick &middot; Use tools: Space / tap &middot; Menu: Esc</p>
+    <div id="modePick">
+      <button id="modeAdv" class="modebtn sel">Adventurer<br><small>Normal — as intended</small></button>
+      <button id="modeExp" class="modebtn">Explorer<br><small>Faster · cheaper · more loot</small></button>
+    </div>
     <div id="loadBarWrap" class="wood"><div id="loadBar"></div></div>
     <div id="loadTip">Loading&hellip;</div>
     <button id="playBtn">&#9654; Play</button>

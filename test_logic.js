@@ -49,7 +49,9 @@ const { CROPS, game, advanceDay, fmtClockTest, genWorld, update, render, doActio
         farmLevel, HIRE_POOL, hireCandidate, upgradeEmployee, dismissEmployee, applyEmployees,
         TS, markExplored,
         CATALOGUE, orderItem, deliverPost, collectMail, isPostDay, daysUntilPost,
-        CRAFT_RECIPES, craftRecipe, canCraft, skillLearned, recipeFee, recipeAvailable, toolPower } = eng;
+        CRAFT_RECIPES, craftRecipe, canCraft, skillLearned, recipeFee, recipeAvailable, toolPower,
+        ARTISAN, processItem, genVillage, travelTo, storeBuySeed, storeSellAll,
+        setMode, isExplorer, modeSpeed, priceMult, lootMult, MAP_W } = eng;
 
 let pass = 0, fail = 0;
 function check(name, cond) { (cond ? (pass++, console.log('  PASS', name)) : (fail++, console.log('  FAIL', name))); }
@@ -291,6 +293,39 @@ game.paused = false; game.sleeping = false; game.buildMenuOpen = false; game.hir
 game.catalogueOpen = false; game.craftMenuOpen = false; game.motes = [];
 update(0.02);
 check('faint drifting motes are present', game.motes.length > 0);
+
+console.log('== Artisan kitchen processing ==');
+game.bag = { milk: 2, carrot: 1 };
+const cheese = ARTISAN.find(a => a.out === 'Cheese');
+processItem(ARTISAN.indexOf(cheese));
+check('milk processes into Cheese', (game.bag.Cheese || 0) === 1 && (game.bag.milk || 0) === 1);
+check('Cheese is worth far more than raw milk', cheese.sell > 125);
+
+console.log('== Game modes (Explorer vs Adventurer) ==');
+setMode('explorer');
+check('explorer is faster', modeSpeed() > 1);
+check('explorer makes things cheaper', priceMult() < 1);
+check('explorer yields more loot', lootMult() > 1);
+setMode('adventurer');
+check('adventurer is normal speed/price/loot', modeSpeed() === 1 && priceMult() === 1 && lootMult() === 1);
+
+console.log('== First town: Mossy Village + travel ==');
+// travel to the village from the ranch (player on the west road edge)
+game.area = 'ranch'; game.areas = {}; game.travelCooldown = 0;
+travelTo('village', MAP_W - 2, 17);
+check('travelled to the village', game.area === 'village');
+check('village has a general store', game.objects.some(o => o.type === 'store'));
+check('village has villagers', game.objects.some(o => o.type === 'villager'));
+// store buying/selling
+game.gold = 1000; game.seeds = { parsnip: 0, carrot: 0, potato: 0, pumpkin: 0 };
+storeBuySeed(0);
+check('store sells seeds instantly', game.seeds.parsnip === 1 && game.gold < 1000);
+game.bag = { carrot: 2 }; const g0 = game.gold;
+storeSellAll();
+check('store buys your goods', game.gold > g0 && !game.bag.carrot);
+// travel back to the ranch restores it
+travelTo('ranch', 1, 10);
+check('travelled back to the ranch', game.area === 'ranch' && game.objects.some(o => o.type === 'home'));
 
 console.log('== Clock formatting (lowercase, 10-min ticks) ==');
 game.minutes = 360;  check('6:00 am', fmtClockTest() === '6:00 am');
