@@ -154,6 +154,7 @@ const game = {
   bridges: new Set(),          // "x,y" water tiles crossed by a wooden bridge (walkable)
   fords: new Set(),            // "x,y" shallow cobble water the player can wade across
   secretFound: false,          // discovered the grotto behind the falls
+  homeIntroShown: false,       // greeted at the home for the first time
   // fishing minigame
   fishing: { active: false, state: '', t: 0, biteAt: 0, biteEnd: 0, tx: 0, ty: 0, type: 'pond' },
   // animated world clock (for water/waterfall shimmer)
@@ -370,13 +371,17 @@ const keys = {};
 let mouse = { x: 0, y: 0, down: false };
 
 window.addEventListener('keydown', (e) => {
+  // build menu open: only Escape closes it
+  if (game.buildMenuOpen) { if (e.key === 'Escape') closeBuildMenu(); return; }
   if (game.paused && e.key !== 'Escape') return;
   keys[e.key.toLowerCase()] = true;
-  // hotbar select
+  // hotbar select (1-9 and 0 for slot 10)
   if (e.key >= '1' && e.key <= '9') game.selected = parseInt(e.key, 10) - 1;
+  if (e.key === '0') game.selected = 9;
   if (e.key === ' ') { e.preventDefault(); doAction(); }
   if (e.key.toLowerCase() === 'e') doAction();       // interact
   if (e.key.toLowerCase() === 'b') tryBuy();          // buy seeds near shop
+  if (e.key.toLowerCase() === 'm') document.body.classList.toggle('hidemap'); // toggle minimap
   if (e.key === 'Escape') game.paused = !game.paused;
   if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase()))
     e.preventDefault();
@@ -523,7 +528,9 @@ function catchFish() {
   const idx = r < 0.5 ? 0 : r < 0.8 ? 1 : r < 0.95 ? 2 : 3;
   const fish = list[Math.min(idx, list.length - 1)];
   addBag(fish.name, 1);
-  toast('Caught a ' + fish.name + '!  (sells for ' + fish.sell + 'g)');
+  // Pearls are a water treasure — a chance to find one while fishing
+  if (Math.random() < 0.14) { game.pearls += 1; toast('Caught a ' + fish.name + '! You also found a Pearl!', 4); }
+  else toast('Caught a ' + fish.name + '!  (sells for ' + fish.sell + ' coins)');
   game.fishing.active = false; game.fishing.state = '';
 }
 
@@ -535,7 +542,9 @@ function hitObject(kind, tx, ty, drop, amount) {
     addBag(drop, amount);
     game.objects = game.objects.filter(x => x !== o);
     rebuildSolids();
-    toast('+' + amount + ' ' + drop);
+    // Emeralds are mined — a chance to strike one when breaking a rock
+    if (kind === 'rock' && Math.random() < 0.18) { game.emeralds += 1; toast('+' + amount + ' ' + drop + ' — and an Emerald!', 4); }
+    else toast('+' + amount + ' ' + drop);
   }
 }
 
@@ -717,12 +726,13 @@ function saveGame() {
   try {
     const data = {
       px: game.px, py: game.py, energy: game.energy, health: game.health,
-      gold: game.gold, minutes: game.minutes, day: game.day,
+      gold: game.gold, pearls: game.pearls, emeralds: game.emeralds,
+      minutes: game.minutes, day: game.day,
       hotbar: game.hotbar, selected: game.selected, bag: game.bag,
       chest: game.chest, seeds: game.seeds,
       tilled: [...game.tilled], watered: [...game.watered], crops: game.crops,
       objects: game.objects, animals: game.animals.map(a => ({ ...a })),
-      secretFound: game.secretFound,
+      secretFound: game.secretFound, homeIntroShown: game.homeIntroShown,
     };
     localStorage.setItem('harvest_hollow_save', JSON.stringify(data));
   } catch (e) { /* file:// may block storage; ignore */ }
@@ -734,9 +744,10 @@ function loadGame() {
     const d = JSON.parse(raw);
     Object.assign(game, {
       px: d.px, py: d.py, energy: d.energy, health: d.health, gold: d.gold,
+      pearls: d.pearls || 0, emeralds: d.emeralds || 0,
       minutes: d.minutes, day: d.day, hotbar: d.hotbar, selected: d.selected,
       bag: d.bag, chest: d.chest, seeds: d.seeds, crops: d.crops, objects: d.objects,
-      secretFound: !!d.secretFound,
+      secretFound: !!d.secretFound, homeIntroShown: !!d.homeIntroShown,
     });
     game.tilled = new Set(d.tilled); game.watered = new Set(d.watered);
     rebuildSolids();
@@ -802,8 +813,23 @@ function update(dt) {
   if (game.hitFlash > 0) game.hitFlash -= dt;
   if (game.messageTime > 0) game.messageTime -= dt;
 
+  checkHomeIntro();
   updateAnimals(dt);
   updateEnemies(dt);
+}
+
+// first time the player walks up to their shelter, explain what the home is for
+function checkHomeIntro() {
+  if (game.homeIntroShown) return;
+  const h = homeObj(); if (!h) return;
+  const t = HOME_TIERS[h.tier];
+  const hcx = (h.x + t.w / 2) * TS, hcy = (h.y + t.h / 2) * TS;
+  const pcx = game.px + TS / 2, pcy = game.py + TS / 2;
+  if (Math.hypot(pcx - hcx, pcy - hcy) < TS * 3.2) {
+    game.homeIntroShown = true;
+    toast('This is your home — right now just a Basic Shelter. The bed beside it is where you sleep to start a new day, and the chest stores your belongings. As you earn coins and gather wood, stone, pearls and emeralds, walk up and press Use to upgrade it — tent, cabin, house, all the way to a grand Ranch.', 13);
+    saveGame();
+  }
 }
 
 // collision-aware movement against solid tiles
@@ -1315,8 +1341,12 @@ const hud = {
   hotbar: document.getElementById('hotbar'),
   msg: document.getElementById('msg'),
   dial: document.getElementById('dial'),
+  pearls: document.getElementById('pearls'),
+  emeralds: document.getElementById('emeralds'),
+  minimap: document.getElementById('minimap'),
 };
 const dialCtx = hud.dial ? hud.dial.getContext('2d') : null;
+const miniCtx = hud.minimap ? hud.minimap.getContext('2d') : null;
 let hotbarBuilt = false;
 
 function buildHotbar() {
@@ -1447,9 +1477,12 @@ function updateHUD() {
   hud.clock.textContent = fmtClock();
   hud.day.textContent = WEEKDAYS[(game.day - 1) % 7] + '. ' + game.day;
   hud.gold.textContent = game.gold.toLocaleString();
+  if (hud.pearls) hud.pearls.textContent = game.pearls;
+  if (hud.emeralds) hud.emeralds.textContent = game.emeralds;
   hud.energyBar.style.height = Math.max(0, game.energy / game.maxEnergy * 100) + '%';
   hud.healthBar.style.height = Math.max(0, game.health / game.maxHealth * 100) + '%';
   drawDial();
+  drawMinimap();
   // hotbar slots
   [...hud.hotbar.children].forEach((slot, i) => {
     const item = game.hotbar[i];
@@ -1461,13 +1494,85 @@ function updateHUD() {
   hud.msg.textContent = game.messageTime > 0 ? game.message : '';
 }
 
+// scaled top-down minimap of the whole world + player + landmarks
+function drawMinimap() {
+  if (!miniCtx) return;
+  const W = hud.minimap.width, H = hud.minimap.height;
+  const sx = W / MAP_W, sy = H / MAP_H;
+  miniCtx.clearRect(0, 0, W, H);
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      const k = keyName(x, y);
+      let c = '#4f9a3c';                                  // grass
+      const g = game.ground[y][x];
+      if (g === 'water') c = game.waterType[k] === 'river' ? '#3f8fd0' : '#2f74c0';
+      else if (g === 'path') c = '#c2a06a';
+      if (game.cliff.has(k)) c = '#8a7a5c';
+      if (game.bridges.has(k) || game.fords.has(k)) c = '#b98a4a';
+      if (game.tilled.has(k)) c = '#7a5128';
+      miniCtx.fillStyle = c;
+      miniCtx.fillRect(x * sx, y * sy, Math.ceil(sx), Math.ceil(sy));
+    }
+  }
+  // landmarks
+  const dot = (x, y, col, r = 2) => { miniCtx.fillStyle = col; miniCtx.beginPath();
+    miniCtx.arc((x + 0.5) * sx, (y + 0.5) * sy, r, 0, 7); miniCtx.fill(); };
+  game.objects.forEach(o => {
+    if (o.type === 'home') dot(o.x + 1, o.y + 1, '#ffcf5a', 2.5);
+    else if (o.type === 'shop') dot(o.x, o.y, '#ff8f3a');
+    else if (o.type === 'bin') dot(o.x, o.y, '#caa05a');
+    else if (o.type === 'relic' && game.secretFound) dot(o.x, o.y, '#7fdfff', 2.5);
+  });
+  // player
+  const px = (game.px / TS + 0.5) * sx, py = (game.py / TS + 0.5) * sy;
+  miniCtx.fillStyle = '#fff'; miniCtx.strokeStyle = '#000'; miniCtx.lineWidth = 1;
+  miniCtx.beginPath(); miniCtx.arc(px, py, 2.6, 0, 7); miniCtx.fill(); miniCtx.stroke();
+}
+
+// ---- build menu (home upgrades) ----
+function openBuildMenu() {
+  const panel = document.getElementById('buildMenu'); if (!panel) return;
+  game.buildMenuOpen = true; game.paused = true;
+  renderBuildMenu(); panel.style.display = 'block';
+}
+function closeBuildMenu() {
+  const panel = document.getElementById('buildMenu'); if (!panel) return;
+  game.buildMenuOpen = false; game.paused = false; panel.style.display = 'none';
+}
+function renderBuildMenu() {
+  const body = document.getElementById('bmBody'); if (!body) return;
+  const h = homeObj(); const cur = HOME_TIERS[h.tier]; const next = HOME_TIERS[h.tier + 1];
+  const upBtn = document.getElementById('bmUpgrade');
+  if (!next) {
+    body.innerHTML = '<p>Your home is a fully-built <b>Ranch</b> — the top tier!</p>';
+    if (upBtn) upBtn.style.display = 'none';
+    return;
+  }
+  const rows = Object.entries(next.cost).map(([k, v]) => {
+    const have = haveAmount(k); const ok = have >= v;
+    const nm = { coins: 'Coins', pearls: 'Pearls', emeralds: 'Emeralds', wood: 'Wood', stone: 'Stone' }[k] || k;
+    return '<div class="bmcost ' + (ok ? 'ok' : 'no') + '">' + nm + ': ' + have + ' / ' + v + '</div>';
+  }).join('');
+  body.innerHTML =
+    '<p>Current: <b>' + cur.name + '</b></p>' +
+    '<p>Upgrade to: <b>' + next.name + '</b></p>' +
+    '<div class="bmcosts">' + rows + '</div>';
+  if (upBtn) { upBtn.style.display = ''; upBtn.disabled = !canAfford(next.cost); }
+}
+
 // ----------------------------------------------------------------- BOOT
 function resize() {
-  canvas.width = Math.min(window.innerWidth, 1280);
-  canvas.height = Math.min(window.innerHeight - 0, 760);
+  // fill the visible viewport (use the dynamic viewport so the mobile URL bar
+  // doesn't push the canvas off-centre); cap only so desktop isn't enormous
+  const vw = Math.round((window.visualViewport && window.visualViewport.width) || window.innerWidth);
+  const vh = Math.round((window.visualViewport && window.visualViewport.height) || window.innerHeight);
+  canvas.width = Math.min(vw, 1600);
+  canvas.height = Math.min(vh, 1000);
   ctx.imageSmoothingEnabled = false;
 }
 window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', resize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 
 let last = 0;
 function loop(t) {
@@ -1478,12 +1583,19 @@ function loop(t) {
   requestAnimationFrame(loop);
 }
 
+function bindBuildMenu() {
+  const up = document.getElementById('bmUpgrade'), cl = document.getElementById('bmClose');
+  if (up) up.addEventListener('click', () => { if (upgradeHome()) renderBuildMenu(); });
+  if (cl) cl.addEventListener('click', closeBuildMenu);
+}
+
 async function boot() {
   resize();
   await loadAssets();
   genWorld();
   const restored = loadGame();   // restore if a save exists
   buildHotbar();
+  bindBuildMenu();
   if (!restored) {
     // first seed of the mystery: home is Harvest Hollow; the goal is Sandy Cove
     toast('Welcome to Harvest Hollow. You came chasing a rumor of Sandy Cove — a place that hides from those who simply look. Tend the land, explore, and the way will show itself...', 11);
@@ -1496,7 +1608,8 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { CROPS, game, advanceDay, fmtClockTest: fmtClock,
                      genWorld, update, render, doAction, mulberry32,
                      fenceMask, FENCE_TILES, startFishing, catchFish, tryInteract,
-                     POND_FISH, RIVER_FISH, keyName };
+                     POND_FISH, RIVER_FISH, keyName,
+                     HOME_TIERS, upgradeHome, canAfford, homeObj };
 }
 
 boot();

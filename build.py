@@ -56,8 +56,8 @@ html = """<!DOCTYPE html>
     touch-action: none; -webkit-user-select: none; user-select: none;
     -webkit-tap-highlight-color: transparent; }
   canvas#game { touch-action: none; }
-  #wrap { position: relative; width: 100vw; height: 100vh; display: flex;
-    align-items: center; justify-content: center; }
+  #wrap { position: relative; width: 100vw; height: 100vh; height: 100dvh; display: flex;
+    align-items: center; justify-content: center; overflow: hidden; }
   canvas#game { image-rendering: pixelated; image-rendering: crisp-edges;
     background: #6cbf4b; box-shadow: 0 0 0 2px #000, 0 12px 40px rgba(0,0,0,.5); }
 
@@ -77,11 +77,43 @@ html = """<!DOCTYPE html>
   #clockBox { display: flex; flex-direction: column; align-items: center; padding: 8px 10px 6px; gap: 2px; }
   #dial { width: 84px; height: 84px; }
   #clock { font-size: 20px; }
-  #goldBox { display: flex; align-items: center; gap: 10px; padding: 6px 16px 8px; }
+  #goldBox { display: flex; align-items: center; gap: 14px; padding: 6px 16px 8px; }
+  #goldBox .cur { display: flex; align-items: center; gap: 6px; }
+  #goldBox .gem { width: 18px; height: 18px; }
   #goldBox .coin { width: 20px; height: 20px; border-radius: 50%;
     background: radial-gradient(circle at 35% 30%, #ffe98a, #d6a01e 70%, #9c6f10);
     border: 2px solid #7a5410; box-shadow: inset -1px -1px 0 #00000033; }
-  #gold { font-size: 24px; color: #6b3f12; }
+  #goldBox .pearl { border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #ffffff, #d8e6f0 60%, #9fb6c8);
+    border: 1px solid #8aa0b2; }
+  #goldBox .emerald { transform: rotate(45deg);
+    background: radial-gradient(circle at 35% 30%, #8effc0, #1faa5e 65%, #0c7a3e);
+    border: 1px solid #0a5e2f; }
+  #goldBox span { font-size: 20px; color: #4a2c12; }
+  #gold { font-size: 22px; }
+
+  /* ---- minimap (top-left) ---- */
+  #mapBox { position: absolute; top: 14px; left: 14px; padding: 6px; }
+  #minimap { width: 176px; height: 136px; image-rendering: pixelated; display: block;
+    border: 2px solid #6b3f1d; border-radius: 4px; }
+  #mapBox .cap { font-size: 11px; color: #4a2c12; text-align: center; margin-top: 2px; }
+  body.hidemap #mapBox { display: none; }
+
+  /* ---- build menu (home upgrades) ---- */
+  #buildMenu { display: none; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); width: min(340px, 86vw); padding: 16px 18px 14px;
+    z-index: 20; text-align: center; }
+  #buildMenu h2 { margin: 0 0 8px; color: #4a2c12; text-shadow: 0 1px 0 #f3d8a8; font-size: 20px; }
+  #buildMenu p { margin: 4px 0; color: #4a2c12; }
+  .bmcosts { margin: 10px auto; display: inline-block; text-align: left; }
+  .bmcost { font-size: 14px; padding: 1px 0; }
+  .bmcost.ok { color: #1c7a3a; } .bmcost.no { color: #b23a2a; }
+  #buildMenu .btns { display: flex; gap: 10px; justify-content: center; margin-top: 12px; }
+  #buildMenu button { font-family: inherit; font-weight: bold; font-size: 15px; cursor: pointer;
+    padding: 8px 16px; border-radius: 8px; border: 2px solid #6b3f1d; color: #4a2c12;
+    background: linear-gradient(#f0d3a0, #d2a262); }
+  #buildMenu button:disabled { opacity: .5; cursor: not-allowed; }
+  #buildMenu button:active:not(:disabled) { transform: scale(.96); }
 
   /* ---- right-edge vertical energy/health bars ---- */
   #bars { position: absolute; right: 16px; bottom: 96px; display: flex; gap: 8px; align-items: flex-end; }
@@ -111,8 +143,8 @@ html = """<!DOCTYPE html>
   #msg.wood { color: #4a2c12; text-shadow: 0 1px 0 #f3d8a8; }
   #msg:empty { display: none; }
 
-  #help { position: absolute; top: 14px; left: 14px; padding: 9px 13px; font-size: 12px;
-    line-height: 1.55; max-width: 232px; color: #4a2c12; }
+  #help { position: absolute; top: 196px; left: 14px; padding: 9px 13px; font-size: 12px;
+    line-height: 1.5; max-width: 200px; color: #4a2c12; }
   #help b { color: #7a3f12; }
 
   /* ---- on-screen touch buttons (hidden until a touch is detected) ---- */
@@ -128,16 +160,36 @@ html = """<!DOCTYPE html>
 
   /* ---- phone-sized layout tweaks ---- */
   @media (max-width: 760px), (pointer: coarse) {
-    #hotbar { gap: 3px; padding: 5px; max-width: 96vw; overflow-x: auto; touch-action: pan-x; }
-    .slot { width: 46px; height: 46px; }
-    .slot .ic { width: 38px; height: 38px; }
-    #dayBox { font-size: 20px; padding: 4px 12px 6px; }
-    #dial { width: 64px; height: 64px; }
-    #clock { font-size: 16px; }
-    #gold { font-size: 18px; }
-    #goldBox { padding: 4px 12px 6px; }
-    #bars { bottom: 200px; }
-    .vbar { height: 150px; width: 22px; }
+    /* top-right status cluster, smaller */
+    #top { top: 8px; right: 8px; gap: 5px; }
+    #dayBox { font-size: 16px; padding: 3px 10px 4px; min-width: 0; }
+    #clockBox { padding: 5px 7px 4px; }
+    #dial { width: 50px; height: 50px; }
+    #clock { font-size: 13px; }
+    #goldBox { gap: 9px; padding: 4px 10px 5px; }
+    #goldBox span { font-size: 15px; } #gold { font-size: 16px; }
+    #goldBox .gem { width: 14px; height: 14px; } #goldBox .coin { width: 15px; height: 15px; }
+
+    /* minimap, smaller, top-left */
+    #mapBox { top: 8px; left: 8px; padding: 4px; }
+    #minimap { width: 104px; height: 80px; }
+    #mapBox .cap { font-size: 9px; }
+
+    /* vertical bars */
+    #bars { right: 8px; bottom: 150px; gap: 6px; }
+    .vbar { height: 118px; width: 18px; padding: 3px; }
+
+    /* hotbar fits 10 slots across a phone */
+    #hotbar { gap: 2px; padding: 4px; max-width: 99vw; overflow-x: auto; touch-action: pan-x; bottom: 8px; }
+    .slot { width: 34px; height: 34px; border-radius: 5px; }
+    .slot .ic { width: 28px; height: 28px; }
+    .slot .num { font-size: 8px; } .slot .cnt { font-size: 10px; }
+
+    /* touch buttons + message */
+    #touchUI { right: 10px; bottom: 150px; gap: 9px; }
+    .tbtn { width: 64px; height: 64px; font-size: 16px; } #btnA { width: 74px; height: 74px; font-size: 18px; }
+    #msg { font-size: 13px; bottom: 78px; padding: 5px 12px; }
+    #buildMenu { width: min(320px, 90vw); }
   }
 </style>
 </head>
@@ -151,7 +203,25 @@ html = """<!DOCTYPE html>
       <canvas id="dial" width="84" height="84"></canvas>
       <span id="clock" class="emboss">6:00 am</span>
     </div>
-    <div id="goldBox" class="wood"><span class="coin"></span><span id="gold" class="emboss">150</span></div>
+    <div id="goldBox" class="wood">
+      <div class="cur"><span class="coin"></span><span id="gold" class="emboss">150</span></div>
+      <div class="cur"><span class="gem pearl"></span><span id="pearls" class="emboss">0</span></div>
+      <div class="cur"><span class="gem emerald"></span><span id="emeralds" class="emboss">0</span></div>
+    </div>
+  </div>
+
+  <div id="mapBox" class="wood">
+    <canvas id="minimap" width="176" height="136"></canvas>
+    <div class="cap">Harvest Hollow &nbsp;·&nbsp; M to toggle</div>
+  </div>
+
+  <div id="buildMenu" class="wood">
+    <h2>Build &amp; Upgrade Home</h2>
+    <div id="bmBody"></div>
+    <div class="btns">
+      <button id="bmUpgrade">Upgrade</button>
+      <button id="bmClose">Close</button>
+    </div>
   </div>
 
   <div id="bars">
@@ -167,7 +237,8 @@ html = """<!DOCTYPE html>
     <b>Select tool</b> 1-9 keys<br/>
     <b>Buy seeds</b> B (near SHOP)<br/>
     <b>Sleep</b> use BED &middot; <b>Ship</b> use SHIP bin<br/>
-    <b>Pause</b> Esc
+    <b>Upgrade home</b> use it (Use/E)<br/>
+    <b>Minimap</b> M &middot; <b>Pause</b> Esc
   </div>
 
   <div id="touchUI">

@@ -11,8 +11,8 @@
     touch-action: none; -webkit-user-select: none; user-select: none;
     -webkit-tap-highlight-color: transparent; }
   canvas#game { touch-action: none; }
-  #wrap { position: relative; width: 100vw; height: 100vh; display: flex;
-    align-items: center; justify-content: center; }
+  #wrap { position: relative; width: 100vw; height: 100vh; height: 100dvh; display: flex;
+    align-items: center; justify-content: center; overflow: hidden; }
   canvas#game { image-rendering: pixelated; image-rendering: crisp-edges;
     background: #6cbf4b; box-shadow: 0 0 0 2px #000, 0 12px 40px rgba(0,0,0,.5); }
 
@@ -32,11 +32,43 @@
   #clockBox { display: flex; flex-direction: column; align-items: center; padding: 8px 10px 6px; gap: 2px; }
   #dial { width: 84px; height: 84px; }
   #clock { font-size: 20px; }
-  #goldBox { display: flex; align-items: center; gap: 10px; padding: 6px 16px 8px; }
+  #goldBox { display: flex; align-items: center; gap: 14px; padding: 6px 16px 8px; }
+  #goldBox .cur { display: flex; align-items: center; gap: 6px; }
+  #goldBox .gem { width: 18px; height: 18px; }
   #goldBox .coin { width: 20px; height: 20px; border-radius: 50%;
     background: radial-gradient(circle at 35% 30%, #ffe98a, #d6a01e 70%, #9c6f10);
     border: 2px solid #7a5410; box-shadow: inset -1px -1px 0 #00000033; }
-  #gold { font-size: 24px; color: #6b3f12; }
+  #goldBox .pearl { border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #ffffff, #d8e6f0 60%, #9fb6c8);
+    border: 1px solid #8aa0b2; }
+  #goldBox .emerald { transform: rotate(45deg);
+    background: radial-gradient(circle at 35% 30%, #8effc0, #1faa5e 65%, #0c7a3e);
+    border: 1px solid #0a5e2f; }
+  #goldBox span { font-size: 20px; color: #4a2c12; }
+  #gold { font-size: 22px; }
+
+  /* ---- minimap (top-left) ---- */
+  #mapBox { position: absolute; top: 14px; left: 14px; padding: 6px; }
+  #minimap { width: 176px; height: 136px; image-rendering: pixelated; display: block;
+    border: 2px solid #6b3f1d; border-radius: 4px; }
+  #mapBox .cap { font-size: 11px; color: #4a2c12; text-align: center; margin-top: 2px; }
+  body.hidemap #mapBox { display: none; }
+
+  /* ---- build menu (home upgrades) ---- */
+  #buildMenu { display: none; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); width: min(340px, 86vw); padding: 16px 18px 14px;
+    z-index: 20; text-align: center; }
+  #buildMenu h2 { margin: 0 0 8px; color: #4a2c12; text-shadow: 0 1px 0 #f3d8a8; font-size: 20px; }
+  #buildMenu p { margin: 4px 0; color: #4a2c12; }
+  .bmcosts { margin: 10px auto; display: inline-block; text-align: left; }
+  .bmcost { font-size: 14px; padding: 1px 0; }
+  .bmcost.ok { color: #1c7a3a; } .bmcost.no { color: #b23a2a; }
+  #buildMenu .btns { display: flex; gap: 10px; justify-content: center; margin-top: 12px; }
+  #buildMenu button { font-family: inherit; font-weight: bold; font-size: 15px; cursor: pointer;
+    padding: 8px 16px; border-radius: 8px; border: 2px solid #6b3f1d; color: #4a2c12;
+    background: linear-gradient(#f0d3a0, #d2a262); }
+  #buildMenu button:disabled { opacity: .5; cursor: not-allowed; }
+  #buildMenu button:active:not(:disabled) { transform: scale(.96); }
 
   /* ---- right-edge vertical energy/health bars ---- */
   #bars { position: absolute; right: 16px; bottom: 96px; display: flex; gap: 8px; align-items: flex-end; }
@@ -66,8 +98,8 @@
   #msg.wood { color: #4a2c12; text-shadow: 0 1px 0 #f3d8a8; }
   #msg:empty { display: none; }
 
-  #help { position: absolute; top: 14px; left: 14px; padding: 9px 13px; font-size: 12px;
-    line-height: 1.55; max-width: 232px; color: #4a2c12; }
+  #help { position: absolute; top: 196px; left: 14px; padding: 9px 13px; font-size: 12px;
+    line-height: 1.5; max-width: 200px; color: #4a2c12; }
   #help b { color: #7a3f12; }
 
   /* ---- on-screen touch buttons (hidden until a touch is detected) ---- */
@@ -83,16 +115,36 @@
 
   /* ---- phone-sized layout tweaks ---- */
   @media (max-width: 760px), (pointer: coarse) {
-    #hotbar { gap: 3px; padding: 5px; max-width: 96vw; overflow-x: auto; touch-action: pan-x; }
-    .slot { width: 46px; height: 46px; }
-    .slot .ic { width: 38px; height: 38px; }
-    #dayBox { font-size: 20px; padding: 4px 12px 6px; }
-    #dial { width: 64px; height: 64px; }
-    #clock { font-size: 16px; }
-    #gold { font-size: 18px; }
-    #goldBox { padding: 4px 12px 6px; }
-    #bars { bottom: 200px; }
-    .vbar { height: 150px; width: 22px; }
+    /* top-right status cluster, smaller */
+    #top { top: 8px; right: 8px; gap: 5px; }
+    #dayBox { font-size: 16px; padding: 3px 10px 4px; min-width: 0; }
+    #clockBox { padding: 5px 7px 4px; }
+    #dial { width: 50px; height: 50px; }
+    #clock { font-size: 13px; }
+    #goldBox { gap: 9px; padding: 4px 10px 5px; }
+    #goldBox span { font-size: 15px; } #gold { font-size: 16px; }
+    #goldBox .gem { width: 14px; height: 14px; } #goldBox .coin { width: 15px; height: 15px; }
+
+    /* minimap, smaller, top-left */
+    #mapBox { top: 8px; left: 8px; padding: 4px; }
+    #minimap { width: 104px; height: 80px; }
+    #mapBox .cap { font-size: 9px; }
+
+    /* vertical bars */
+    #bars { right: 8px; bottom: 150px; gap: 6px; }
+    .vbar { height: 118px; width: 18px; padding: 3px; }
+
+    /* hotbar fits 10 slots across a phone */
+    #hotbar { gap: 2px; padding: 4px; max-width: 99vw; overflow-x: auto; touch-action: pan-x; bottom: 8px; }
+    .slot { width: 34px; height: 34px; border-radius: 5px; }
+    .slot .ic { width: 28px; height: 28px; }
+    .slot .num { font-size: 8px; } .slot .cnt { font-size: 10px; }
+
+    /* touch buttons + message */
+    #touchUI { right: 10px; bottom: 150px; gap: 9px; }
+    .tbtn { width: 64px; height: 64px; font-size: 16px; } #btnA { width: 74px; height: 74px; font-size: 18px; }
+    #msg { font-size: 13px; bottom: 78px; padding: 5px 12px; }
+    #buildMenu { width: min(320px, 90vw); }
   }
 </style>
 </head>
@@ -106,7 +158,25 @@
       <canvas id="dial" width="84" height="84"></canvas>
       <span id="clock" class="emboss">6:00 am</span>
     </div>
-    <div id="goldBox" class="wood"><span class="coin"></span><span id="gold" class="emboss">150</span></div>
+    <div id="goldBox" class="wood">
+      <div class="cur"><span class="coin"></span><span id="gold" class="emboss">150</span></div>
+      <div class="cur"><span class="gem pearl"></span><span id="pearls" class="emboss">0</span></div>
+      <div class="cur"><span class="gem emerald"></span><span id="emeralds" class="emboss">0</span></div>
+    </div>
+  </div>
+
+  <div id="mapBox" class="wood">
+    <canvas id="minimap" width="176" height="136"></canvas>
+    <div class="cap">Harvest Hollow &nbsp;·&nbsp; M to toggle</div>
+  </div>
+
+  <div id="buildMenu" class="wood">
+    <h2>Build &amp; Upgrade Home</h2>
+    <div id="bmBody"></div>
+    <div class="btns">
+      <button id="bmUpgrade">Upgrade</button>
+      <button id="bmClose">Close</button>
+    </div>
   </div>
 
   <div id="bars">
@@ -122,7 +192,8 @@
     <b>Select tool</b> 1-9 keys<br/>
     <b>Buy seeds</b> B (near SHOP)<br/>
     <b>Sleep</b> use BED &middot; <b>Ship</b> use SHIP bin<br/>
-    <b>Pause</b> Esc
+    <b>Upgrade home</b> use it (Use/E)<br/>
+    <b>Minimap</b> M &middot; <b>Pause</b> Esc
   </div>
 
   <div id="touchUI">
@@ -195,6 +266,17 @@ const CROPS = {
   pumpkin: { name: 'Pumpkin', stages: 5, days: 9, sell: 320, seed: 100, color: '#e07b1a', leaf: '#3f8f3a' },
 };
 
+// Home upgrade ladder. `cost` is what it takes to upgrade INTO that tier.
+// Currencies: coins (standard), pearls (mid, from fishing), emeralds (rare, from mining).
+const HOME_TIERS = [
+  { name: 'Basic Shelter', w: 2, h: 2, cost: null },
+  { name: 'Small Tent',    w: 2, h: 2, cost: { coins: 300,   wood: 20 } },
+  { name: 'Large Tent',    w: 3, h: 3, cost: { coins: 800,   wood: 50,  pearls: 2 } },
+  { name: 'Small Home',    w: 4, h: 4, cost: { coins: 2000,  wood: 120, stone: 50,  pearls: 6 } },
+  { name: 'Town Home',     w: 6, h: 8, cost: { coins: 6000,  wood: 300, stone: 150, pearls: 15, emeralds: 2 } },
+  { name: 'Ranch',         w: 8, h: 8, cost: { coins: 15000, wood: 600, stone: 400, pearls: 40, emeralds: 10 } },
+];
+
 // Fish split by water type — pond fish vs river fish.
 const POND_FISH = [
   { name: 'Carp', sell: 30 }, { name: 'Bluegill', sell: 45 },
@@ -253,7 +335,9 @@ const game = {
   speed: 150,                  // px / sec
   energy: 100, maxEnergy: 100,
   health: 100, maxHealth: 100,
-  gold: 150,
+  gold: 150,                   // Coins (standard currency)
+  pearls: 0,                   // mid-tier, from fishing
+  emeralds: 0,                 // rare, from mining
   // time
   minutes: DAY_START, day: 1, season: 'Spring',
   minAccum: 0,
@@ -280,6 +364,7 @@ const game = {
   bridges: new Set(),          // "x,y" water tiles crossed by a wooden bridge (walkable)
   fords: new Set(),            // "x,y" shallow cobble water the player can wade across
   secretFound: false,          // discovered the grotto behind the falls
+  homeIntroShown: false,       // greeted at the home for the first time
   // fishing minigame
   fishing: { active: false, state: '', t: 0, biteAt: 0, biteEnd: 0, tx: 0, ty: 0, type: 'pond' },
   // animated world clock (for water/waterfall shimmer)
@@ -289,6 +374,7 @@ const game = {
   hitFlash: 0, toolUseTime: 0,
   message: '', messageTime: 0,
   paused: false,
+  buildMenuOpen: false,
 };
 
 const keyName = (x, y) => x + ',' + y;
@@ -394,8 +480,8 @@ function genWorld() {
     if (!reserved(x, y) && !occupied(x, y)) addObject('rock', x, y, { hp: 3 });
   }
 
-  // homestead: house, bed, storage, shop, and the Harvest Hollow sign
-  addObject('house', 4, 2, { w: 6, h: 8 });
+  // homestead: your upgradeable home (starts as a Basic Shelter), bed, storage, shop, sign
+  addObject('home', 3, 2, { tier: 0 });
   addObject('bed', 11, 8, {});
   addObject('chest', 13, 9, {});
   addObject('bin', 14, 9, {});
@@ -456,9 +542,11 @@ function rebuildSolids() {
   game.cliff.forEach(k => game.solid.add(k));
   // objects
   game.objects.forEach(o => {
-    if (o.type === 'house') {
-      for (let yy = 0; yy < o.h; yy++)
-        for (let xx = 0; xx < o.w; xx++) game.solid.add(keyName(o.x + xx, o.y + yy));
+    if (o.type === 'house' || o.type === 'home') {
+      const fw = o.type === 'home' ? HOME_TIERS[o.tier].w : o.w;
+      const fh = o.type === 'home' ? HOME_TIERS[o.tier].h : o.h;
+      for (let yy = 0; yy < fh; yy++)
+        for (let xx = 0; xx < fw; xx++) game.solid.add(keyName(o.x + xx, o.y + yy));
     } else if (o.type === 'tree' || o.type === 'rock' || o.type === 'fence' ||
                o.type === 'chest' || o.type === 'bin' || o.type === 'shop') {
       game.solid.add(keyName(o.x, o.y));
@@ -493,13 +581,17 @@ const keys = {};
 let mouse = { x: 0, y: 0, down: false };
 
 window.addEventListener('keydown', (e) => {
+  // build menu open: only Escape closes it
+  if (game.buildMenuOpen) { if (e.key === 'Escape') closeBuildMenu(); return; }
   if (game.paused && e.key !== 'Escape') return;
   keys[e.key.toLowerCase()] = true;
-  // hotbar select
+  // hotbar select (1-9 and 0 for slot 10)
   if (e.key >= '1' && e.key <= '9') game.selected = parseInt(e.key, 10) - 1;
+  if (e.key === '0') game.selected = 9;
   if (e.key === ' ') { e.preventDefault(); doAction(); }
   if (e.key.toLowerCase() === 'e') doAction();       // interact
   if (e.key.toLowerCase() === 'b') tryBuy();          // buy seeds near shop
+  if (e.key.toLowerCase() === 'm') document.body.classList.toggle('hidemap'); // toggle minimap
   if (e.key === 'Escape') game.paused = !game.paused;
   if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase()))
     e.preventDefault();
@@ -646,7 +738,9 @@ function catchFish() {
   const idx = r < 0.5 ? 0 : r < 0.8 ? 1 : r < 0.95 ? 2 : 3;
   const fish = list[Math.min(idx, list.length - 1)];
   addBag(fish.name, 1);
-  toast('Caught a ' + fish.name + '!  (sells for ' + fish.sell + 'g)');
+  // Pearls are a water treasure — a chance to find one while fishing
+  if (Math.random() < 0.14) { game.pearls += 1; toast('Caught a ' + fish.name + '! You also found a Pearl!', 4); }
+  else toast('Caught a ' + fish.name + '!  (sells for ' + fish.sell + ' coins)');
   game.fishing.active = false; game.fishing.state = '';
 }
 
@@ -658,7 +752,9 @@ function hitObject(kind, tx, ty, drop, amount) {
     addBag(drop, amount);
     game.objects = game.objects.filter(x => x !== o);
     rebuildSolids();
-    toast('+' + amount + ' ' + drop);
+    // Emeralds are mined — a chance to strike one when breaking a rock
+    if (kind === 'rock' && Math.random() < 0.18) { game.emeralds += 1; toast('+' + amount + ' ' + drop + ' — and an Emerald!', 4); }
+    else toast('+' + amount + ' ' + drop);
   }
 }
 
@@ -699,6 +795,14 @@ function swingSword() {
 }
 
 function tryInteract(tx, ty) {
+  // the home occupies several tiles — match any of its footprint
+  const home = game.objects.find(h => h.type === 'home');
+  if (home) {
+    const t = HOME_TIERS[home.tier];
+    if (tx >= home.x && tx < home.x + t.w && ty >= home.y && ty < home.y + t.h) {
+      openBuildMenu(); return true;
+    }
+  }
   const o = game.objects.find(o => o.x === tx && o.y === ty);
   // bed -> sleep
   if (o && o.type === 'bed') { startSleep(); return true; }
@@ -764,6 +868,37 @@ function spendEnergy(n) {
   if (game.energy < 0) { game.health += game.energy; game.energy = 0; } // overexertion hurts
 }
 
+// ---- home upgrades ----
+function homeObj() { return game.objects.find(o => o.type === 'home'); }
+function haveAmount(key) {
+  if (key === 'coins') return game.gold;
+  if (key === 'pearls') return game.pearls;
+  if (key === 'emeralds') return game.emeralds;
+  return game.bag[key] || 0;                  // wood / stone live in the bag
+}
+function canAfford(cost) { return Object.keys(cost).every(k => haveAmount(k) >= cost[k]); }
+function payCost(cost) {
+  for (const k in cost) {
+    if (k === 'coins') game.gold -= cost[k];
+    else if (k === 'pearls') game.pearls -= cost[k];
+    else if (k === 'emeralds') game.emeralds -= cost[k];
+    else game.bag[k] -= cost[k];
+  }
+}
+function upgradeHome() {
+  const h = homeObj(); if (!h) return false;
+  const next = HOME_TIERS[h.tier + 1];
+  if (!next) { toast('Your Ranch is fully built!'); return false; }
+  if (!canAfford(next.cost)) { toast('Not enough materials for the ' + next.name + '.'); return false; }
+  payCost(next.cost);
+  h.tier += 1;
+  rebuildSolids();
+  toast('Home upgraded to ' + next.name + '!', 5);
+  if (next.name === 'Ranch') toast('The Ranch is complete. Something stirs toward Sandy Cove...', 9);
+  saveGame();
+  return true;
+}
+
 // ----------------------------------------------------------------- DAY CYCLE
 function startSleep() {
   if (game.sleeping) return;
@@ -801,12 +936,13 @@ function saveGame() {
   try {
     const data = {
       px: game.px, py: game.py, energy: game.energy, health: game.health,
-      gold: game.gold, minutes: game.minutes, day: game.day,
+      gold: game.gold, pearls: game.pearls, emeralds: game.emeralds,
+      minutes: game.minutes, day: game.day,
       hotbar: game.hotbar, selected: game.selected, bag: game.bag,
       chest: game.chest, seeds: game.seeds,
       tilled: [...game.tilled], watered: [...game.watered], crops: game.crops,
       objects: game.objects, animals: game.animals.map(a => ({ ...a })),
-      secretFound: game.secretFound,
+      secretFound: game.secretFound, homeIntroShown: game.homeIntroShown,
     };
     localStorage.setItem('harvest_hollow_save', JSON.stringify(data));
   } catch (e) { /* file:// may block storage; ignore */ }
@@ -818,9 +954,10 @@ function loadGame() {
     const d = JSON.parse(raw);
     Object.assign(game, {
       px: d.px, py: d.py, energy: d.energy, health: d.health, gold: d.gold,
+      pearls: d.pearls || 0, emeralds: d.emeralds || 0,
       minutes: d.minutes, day: d.day, hotbar: d.hotbar, selected: d.selected,
       bag: d.bag, chest: d.chest, seeds: d.seeds, crops: d.crops, objects: d.objects,
-      secretFound: !!d.secretFound,
+      secretFound: !!d.secretFound, homeIntroShown: !!d.homeIntroShown,
     });
     game.tilled = new Set(d.tilled); game.watered = new Set(d.watered);
     rebuildSolids();
@@ -886,8 +1023,23 @@ function update(dt) {
   if (game.hitFlash > 0) game.hitFlash -= dt;
   if (game.messageTime > 0) game.messageTime -= dt;
 
+  checkHomeIntro();
   updateAnimals(dt);
   updateEnemies(dt);
+}
+
+// first time the player walks up to their shelter, explain what the home is for
+function checkHomeIntro() {
+  if (game.homeIntroShown) return;
+  const h = homeObj(); if (!h) return;
+  const t = HOME_TIERS[h.tier];
+  const hcx = (h.x + t.w / 2) * TS, hcy = (h.y + t.h / 2) * TS;
+  const pcx = game.px + TS / 2, pcy = game.py + TS / 2;
+  if (Math.hypot(pcx - hcx, pcy - hcy) < TS * 3.2) {
+    game.homeIntroShown = true;
+    toast('This is your home — right now just a Basic Shelter. The bed beside it is where you sleep to start a new day, and the chest stores your belongings. As you earn coins and gather wood, stone, pearls and emeralds, walk up and press Use to upgrade it — tent, cabin, house, all the way to a grand Ranch.', 13);
+    saveGame();
+  }
 }
 
 // collision-aware movement against solid tiles
@@ -1034,6 +1186,7 @@ function drawJoystick() {
 
 function objSortY(o) {
   if (o.type === 'house') return (o.y + o.h) * TS;
+  if (o.type === 'home') return (o.y + HOME_TIERS[o.tier].h) * TS;
   if (o.type === 'tree') return (o.y + 1) * TS;
   return (o.y + 1) * TS;
 }
@@ -1232,6 +1385,8 @@ function drawObject(o, cx, cy) {
       if (ready(IMG.house)) ctx.drawImage(IMG.house, dx, dy, IMG.house.width * SCALE, IMG.house.height * SCALE);
       else fallbackBox(dx, dy, '#7a4', o.w * TS, o.h * TS);
       break;
+    case 'home':
+      drawHome(o, dx, dy); break;
     case 'fence': {
       if (ready(IMG.fences)) {
         const [cc, cr] = FENCE_TILES[fenceMask(o.x, o.y)] || [0, 3];
@@ -1273,6 +1428,52 @@ function drawObject(o, cx, cy) {
       break;
     }
   }
+}
+
+// the player's home, drawn differently per upgrade tier (original procedural art for
+// the early tiers, the Cute Fantasy house sprite for the top tiers)
+function drawHome(o, dx, dy) {
+  const tier = o.tier, t = HOME_TIERS[tier];
+  const W = t.w * TS, H = t.h * TS;
+  const groundY = dy + H;                       // base sits on its footprint
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';           // soft shadow
+  ctx.fillRect(dx + 4, groundY - 6, W - 8, 6);
+  if (tier === 0) {                             // Basic Shelter: lean-to + bedroll
+    ctx.fillStyle = '#7a5a36'; ctx.fillRect(dx + 6, groundY - 10, W - 12, 10);   // bedroll
+    ctx.fillStyle = '#caa05a'; ctx.fillRect(dx + 6, groundY - 10, W - 12, 4);
+    ctx.fillStyle = '#6b7b52'; ctx.beginPath();                                   // tarp
+    ctx.moveTo(dx + 2, groundY - 8); ctx.lineTo(dx + W / 2, dy + 4);
+    ctx.lineTo(dx + W - 2, groundY - 8); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#4d3a22'; ctx.lineWidth = 2; ctx.stroke();
+  } else if (tier === 1 || tier === 2) {        // Small / Large Tent
+    const col = tier === 1 ? '#c66a4a' : '#3f7a8c', colDk = tier === 1 ? '#9c4a30' : '#2c5a68';
+    ctx.fillStyle = col; ctx.beginPath();
+    ctx.moveTo(dx + 2, groundY); ctx.lineTo(dx + W / 2, dy + 4); ctx.lineTo(dx + W - 2, groundY); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = colDk; ctx.beginPath();      // door flap
+    ctx.moveTo(dx + W / 2, dy + 10); ctx.lineTo(dx + W / 2 - 10, groundY); ctx.lineTo(dx + W / 2 + 10, groundY); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#3a2a18'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(dx + 2, groundY); ctx.lineTo(dx + W / 2, dy + 4); ctx.lineTo(dx + W - 2, groundY); ctx.stroke();
+  } else if (tier === 3) {                       // Small Home: little cabin
+    ctx.fillStyle = '#caa46a'; ctx.fillRect(dx + 6, dy + H * 0.42, W - 12, H * 0.58 - 4);   // walls
+    ctx.fillStyle = '#8a5a2b'; ctx.beginPath();                                              // roof
+    ctx.moveTo(dx + 2, dy + H * 0.46); ctx.lineTo(dx + W / 2, dy + 6); ctx.lineTo(dx + W - 2, dy + H * 0.46); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#5a3a1c'; ctx.fillRect(dx + W / 2 - 9, groundY - 26, 18, 26);           // door
+    ctx.fillStyle = '#8fd0f6'; ctx.fillRect(dx + 12, dy + H * 0.55, 12, 12);                 // window
+  } else {                                       // Town Home (4) and Ranch (5): the house sprite
+    if (ready(IMG.house)) {
+      const iw = IMG.house.width * SCALE, ih = IMG.house.height * SCALE;
+      if (tier === 5) {
+        // Ranch: a wider footprint — house plus an attached wing
+        ctx.drawImage(IMG.house, dx, dy + H - ih, iw, ih);
+        ctx.drawImage(IMG.house, dx + W - iw, dy + H - ih * 0.86, iw * 0.86, ih * 0.86);
+        ctx.fillStyle = '#caa05a'; ctx.fillRect(dx, groundY - 8, W, 8);   // connecting porch
+      } else {
+        ctx.drawImage(IMG.house, dx, dy + H - ih, iw, ih);
+      }
+    } else fallbackBox(dx, dy, '#7a4', W, H);
+  }
+  // little nameplate above the home
+  label(dx + W / 2, dy - 4, t.name.toUpperCase());
 }
 
 function ready(img) { return img && img.complete && img.width; }
@@ -1350,8 +1551,12 @@ const hud = {
   hotbar: document.getElementById('hotbar'),
   msg: document.getElementById('msg'),
   dial: document.getElementById('dial'),
+  pearls: document.getElementById('pearls'),
+  emeralds: document.getElementById('emeralds'),
+  minimap: document.getElementById('minimap'),
 };
 const dialCtx = hud.dial ? hud.dial.getContext('2d') : null;
+const miniCtx = hud.minimap ? hud.minimap.getContext('2d') : null;
 let hotbarBuilt = false;
 
 function buildHotbar() {
@@ -1482,9 +1687,12 @@ function updateHUD() {
   hud.clock.textContent = fmtClock();
   hud.day.textContent = WEEKDAYS[(game.day - 1) % 7] + '. ' + game.day;
   hud.gold.textContent = game.gold.toLocaleString();
+  if (hud.pearls) hud.pearls.textContent = game.pearls;
+  if (hud.emeralds) hud.emeralds.textContent = game.emeralds;
   hud.energyBar.style.height = Math.max(0, game.energy / game.maxEnergy * 100) + '%';
   hud.healthBar.style.height = Math.max(0, game.health / game.maxHealth * 100) + '%';
   drawDial();
+  drawMinimap();
   // hotbar slots
   [...hud.hotbar.children].forEach((slot, i) => {
     const item = game.hotbar[i];
@@ -1496,13 +1704,85 @@ function updateHUD() {
   hud.msg.textContent = game.messageTime > 0 ? game.message : '';
 }
 
+// scaled top-down minimap of the whole world + player + landmarks
+function drawMinimap() {
+  if (!miniCtx) return;
+  const W = hud.minimap.width, H = hud.minimap.height;
+  const sx = W / MAP_W, sy = H / MAP_H;
+  miniCtx.clearRect(0, 0, W, H);
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      const k = keyName(x, y);
+      let c = '#4f9a3c';                                  // grass
+      const g = game.ground[y][x];
+      if (g === 'water') c = game.waterType[k] === 'river' ? '#3f8fd0' : '#2f74c0';
+      else if (g === 'path') c = '#c2a06a';
+      if (game.cliff.has(k)) c = '#8a7a5c';
+      if (game.bridges.has(k) || game.fords.has(k)) c = '#b98a4a';
+      if (game.tilled.has(k)) c = '#7a5128';
+      miniCtx.fillStyle = c;
+      miniCtx.fillRect(x * sx, y * sy, Math.ceil(sx), Math.ceil(sy));
+    }
+  }
+  // landmarks
+  const dot = (x, y, col, r = 2) => { miniCtx.fillStyle = col; miniCtx.beginPath();
+    miniCtx.arc((x + 0.5) * sx, (y + 0.5) * sy, r, 0, 7); miniCtx.fill(); };
+  game.objects.forEach(o => {
+    if (o.type === 'home') dot(o.x + 1, o.y + 1, '#ffcf5a', 2.5);
+    else if (o.type === 'shop') dot(o.x, o.y, '#ff8f3a');
+    else if (o.type === 'bin') dot(o.x, o.y, '#caa05a');
+    else if (o.type === 'relic' && game.secretFound) dot(o.x, o.y, '#7fdfff', 2.5);
+  });
+  // player
+  const px = (game.px / TS + 0.5) * sx, py = (game.py / TS + 0.5) * sy;
+  miniCtx.fillStyle = '#fff'; miniCtx.strokeStyle = '#000'; miniCtx.lineWidth = 1;
+  miniCtx.beginPath(); miniCtx.arc(px, py, 2.6, 0, 7); miniCtx.fill(); miniCtx.stroke();
+}
+
+// ---- build menu (home upgrades) ----
+function openBuildMenu() {
+  const panel = document.getElementById('buildMenu'); if (!panel) return;
+  game.buildMenuOpen = true; game.paused = true;
+  renderBuildMenu(); panel.style.display = 'block';
+}
+function closeBuildMenu() {
+  const panel = document.getElementById('buildMenu'); if (!panel) return;
+  game.buildMenuOpen = false; game.paused = false; panel.style.display = 'none';
+}
+function renderBuildMenu() {
+  const body = document.getElementById('bmBody'); if (!body) return;
+  const h = homeObj(); const cur = HOME_TIERS[h.tier]; const next = HOME_TIERS[h.tier + 1];
+  const upBtn = document.getElementById('bmUpgrade');
+  if (!next) {
+    body.innerHTML = '<p>Your home is a fully-built <b>Ranch</b> — the top tier!</p>';
+    if (upBtn) upBtn.style.display = 'none';
+    return;
+  }
+  const rows = Object.entries(next.cost).map(([k, v]) => {
+    const have = haveAmount(k); const ok = have >= v;
+    const nm = { coins: 'Coins', pearls: 'Pearls', emeralds: 'Emeralds', wood: 'Wood', stone: 'Stone' }[k] || k;
+    return '<div class="bmcost ' + (ok ? 'ok' : 'no') + '">' + nm + ': ' + have + ' / ' + v + '</div>';
+  }).join('');
+  body.innerHTML =
+    '<p>Current: <b>' + cur.name + '</b></p>' +
+    '<p>Upgrade to: <b>' + next.name + '</b></p>' +
+    '<div class="bmcosts">' + rows + '</div>';
+  if (upBtn) { upBtn.style.display = ''; upBtn.disabled = !canAfford(next.cost); }
+}
+
 // ----------------------------------------------------------------- BOOT
 function resize() {
-  canvas.width = Math.min(window.innerWidth, 1280);
-  canvas.height = Math.min(window.innerHeight - 0, 760);
+  // fill the visible viewport (use the dynamic viewport so the mobile URL bar
+  // doesn't push the canvas off-centre); cap only so desktop isn't enormous
+  const vw = Math.round((window.visualViewport && window.visualViewport.width) || window.innerWidth);
+  const vh = Math.round((window.visualViewport && window.visualViewport.height) || window.innerHeight);
+  canvas.width = Math.min(vw, 1600);
+  canvas.height = Math.min(vh, 1000);
   ctx.imageSmoothingEnabled = false;
 }
 window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', resize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 
 let last = 0;
 function loop(t) {
@@ -1513,12 +1793,19 @@ function loop(t) {
   requestAnimationFrame(loop);
 }
 
+function bindBuildMenu() {
+  const up = document.getElementById('bmUpgrade'), cl = document.getElementById('bmClose');
+  if (up) up.addEventListener('click', () => { if (upgradeHome()) renderBuildMenu(); });
+  if (cl) cl.addEventListener('click', closeBuildMenu);
+}
+
 async function boot() {
   resize();
   await loadAssets();
   genWorld();
   const restored = loadGame();   // restore if a save exists
   buildHotbar();
+  bindBuildMenu();
   if (!restored) {
     // first seed of the mystery: home is Harvest Hollow; the goal is Sandy Cove
     toast('Welcome to Harvest Hollow. You came chasing a rumor of Sandy Cove — a place that hides from those who simply look. Tend the land, explore, and the way will show itself...', 11);
@@ -1531,7 +1818,8 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { CROPS, game, advanceDay, fmtClockTest: fmtClock,
                      genWorld, update, render, doAction, mulberry32,
                      fenceMask, FENCE_TILES, startFishing, catchFish, tryInteract,
-                     POND_FISH, RIVER_FISH, keyName };
+                     POND_FISH, RIVER_FISH, keyName,
+                     HOME_TIERS, upgradeHome, canAfford, homeObj };
 }
 
 boot();

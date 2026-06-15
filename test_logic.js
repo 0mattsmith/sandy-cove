@@ -44,7 +44,8 @@ global.Image = class { set src(_) {} set onload(_) {} set onerror(_) {} };
 const path = require('path');
 const eng = require(path.join(__dirname, 'engine.js'));
 const { CROPS, game, advanceDay, fmtClockTest, genWorld, update, render, doAction, fenceMask, FENCE_TILES,
-        startFishing, catchFish, tryInteract, POND_FISH, RIVER_FISH, keyName } = eng;
+        startFishing, catchFish, tryInteract, POND_FISH, RIVER_FISH, keyName,
+        HOME_TIERS, upgradeHome, canAfford, homeObj } = eng;
 
 let pass = 0, fail = 0;
 function check(name, cond) { (cond ? (pass++, console.log('  PASS', name)) : (fail++, console.log('  FAIL', name))); }
@@ -58,7 +59,7 @@ try {
 } catch (e) { genOk = false; genErr = e.message; }
 check('genWorld + update + render run without throwing', genOk);
 if (!genOk) console.log('    ->', genErr);
-check('world has a house object', game.objects.some(o => o.type === 'house'));
+check('world has the player home (starts as Basic Shelter)', game.objects.some(o => o.type === 'home' && o.tier === 0));
 check('world has trees', game.objects.some(o => o.type === 'tree'));
 check('world has a bed and shipping bin', game.objects.some(o => o.type === 'bed') && game.objects.some(o => o.type === 'bin'));
 check('animals + enemies spawned', game.animals.length > 0 && game.enemies.length > 0);
@@ -106,6 +107,32 @@ check('relic exists in the grotto', !!relic);
 game.secretFound = false;
 if (relic) tryInteract(relic.x, relic.y);
 check('interacting with relic reveals the secret', game.secretFound === true);
+
+console.log('== Currency + home upgrade ladder ==');
+check('six home tiers, shelter through ranch', HOME_TIERS.length === 6 && HOME_TIERS[0].name === 'Basic Shelter' && HOME_TIERS[5].name === 'Ranch');
+check('tier costs escalate (ranch dearer than tent)', HOME_TIERS[5].cost.coins > HOME_TIERS[1].cost.coins);
+const home = homeObj();
+home.tier = 0;
+game.gold = 0; game.bag = {}; game.pearls = 0; game.emeralds = 0;
+check('cannot upgrade with no resources', upgradeHome() === false && home.tier === 0);
+// give exactly the Small Tent cost
+game.gold = 300; game.bag.wood = 20;
+check('can afford once resources are present', canAfford(HOME_TIERS[1].cost) === true);
+const ok = upgradeHome();
+check('upgrade succeeds and advances a tier', ok === true && home.tier === 1);
+check('upgrade deducts coins and wood', game.gold === 0 && (game.bag.wood || 0) === 0);
+check('higher tiers have a larger footprint', HOME_TIERS[4].w * HOME_TIERS[4].h > HOME_TIERS[0].w * HOME_TIERS[0].h);
+
+console.log('== Home onboarding greeting ==');
+game.homeIntroShown = false;
+const hh = homeObj(); const ht = HOME_TIERS[hh.tier];
+game.px = (hh.x + ht.w / 2) * 48; game.py = (hh.y + ht.h / 2) * 48;  // stand on the home
+update(0.016);
+check('walking up to the home shows the greeting once', game.homeIntroShown === true);
+// moving away and back should not repeat it
+game.px = 30 * 48; game.py = 28 * 48; update(0.016);
+game.px = (hh.x + ht.w / 2) * 48; game.py = (hh.y + ht.h / 2) * 48; update(0.016);
+check('greeting does not repeat', game.homeIntroShown === true);
 
 console.log('== Clock formatting (lowercase, 10-min ticks) ==');
 game.minutes = 360;  check('6:00 am', fmtClockTest() === '6:00 am');
